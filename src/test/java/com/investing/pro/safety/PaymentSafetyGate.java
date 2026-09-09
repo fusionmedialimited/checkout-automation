@@ -19,8 +19,8 @@ public final class PaymentSafetyGate {
         if (!Config.allowUserCreation()) {
             throw new SafetyViolationException(
                     "Test-user creation is disabled by default. Set qa.allowUserCreation=true "
-                            + "(JVM property) or QA_ALLOWUSERCREATION=true (environment variable) "
-                            + "for an explicitly authorized run.");
+                            + "(JVM property) or " + Config.envKey("qa.allowUserCreation")
+                            + "=true (environment variable) for an explicitly authorized run.");
         }
     }
 
@@ -29,8 +29,8 @@ public final class PaymentSafetyGate {
             throw new SafetyViolationException(
                     "Sandbox purchase submission is disabled by default. Set "
                             + "qa.allowSandboxPurchase=true (JVM property) or "
-                            + "QA_ALLOWSANDBOXPURCHASE=true (environment variable) for an "
-                            + "explicitly authorized run.");
+                            + Config.envKey("qa.allowSandboxPurchase")
+                            + "=true (environment variable) for an explicitly authorized run.");
         }
         PaymentMode mode = Config.paymentMode();
         if (mode != PaymentMode.SANDBOX) {
@@ -54,8 +54,8 @@ public final class PaymentSafetyGate {
             throw new SafetyViolationException(
                     "Real-card purchase submission is disabled by default. Set "
                             + "qa.allowRealCardPurchase=true (JVM property) or "
-                            + "QA_ALLOWREALCARDPURCHASE=true (environment variable) for an "
-                            + "explicitly authorized run.");
+                            + Config.envKey("qa.allowRealCardPurchase")
+                            + "=true (environment variable) for an explicitly authorized run.");
         }
         PaymentMode mode = Config.paymentMode();
         if (mode != PaymentMode.REAL) {

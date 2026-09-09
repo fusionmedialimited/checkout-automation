@@ -116,7 +116,9 @@ public final class Config {
         return fromDefaults == null ? null : fromDefaults.trim();
     }
 
-    static String envKey(String key) {
+    /** The environment variable name a config key resolves to (public so callers can build
+     * accurate run instructions instead of hard-coding the naming rule themselves). */
+    public static String envKey(String key) {
         return key.toUpperCase(Locale.ROOT).replace('.', '_');
     }
 
