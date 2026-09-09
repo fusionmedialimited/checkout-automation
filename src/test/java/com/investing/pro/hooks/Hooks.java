@@ -48,7 +48,13 @@ public final class Hooks {
             // exception itself (not just its message) so the stack trace survives in the logs.
             LOG.warn("Artifact capture failed for scenario '{}'", scenario.getName(), e);
         } finally {
-            browserResources.close();
+            try {
+                browserResources.close();
+            } catch (RuntimeException e) {
+                // Same reasoning as above: cleanup failing must never override the scenario's
+                // own result.
+                LOG.warn("Browser cleanup failed for scenario '{}'", scenario.getName(), e);
+            }
         }
     }
 

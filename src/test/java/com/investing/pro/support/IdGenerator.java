@@ -11,6 +11,10 @@ public final class IdGenerator {
     private static final DateTimeFormatter TIMESTAMP = DateTimeFormatter
             .ofPattern("yyyyMMdd-HHmmss", Locale.ROOT);
 
+    // Scenario names feed straight into artifact file names (<runId>_<scenarioId>.png/zip); an
+    // unbounded slug from a long scenario title risks common filesystem path-length limits.
+    private static final int MAX_SLUG_LENGTH = 60;
+
     // Computed once and cached: every scenario in this JVM must share the same run id (a new
     // TestRunContext, and therefore a fresh call to runId(), is created per scenario), otherwise
     // two scenarios in the same local run would get different timestamp-based ids.
@@ -36,6 +40,9 @@ public final class IdGenerator {
         String slug = scenarioName.toLowerCase(Locale.ROOT)
                 .replaceAll("[^a-z0-9]+", "-")
                 .replaceAll("(^-|-$)", "");
+        if (slug.length() > MAX_SLUG_LENGTH) {
+            slug = slug.substring(0, MAX_SLUG_LENGTH).replaceAll("-$", "");
+        }
         String shortSuffix = UUID.randomUUID().toString().substring(0, 8);
         return (slug.isBlank() ? "scenario" : slug) + "-" + shortSuffix;
     }

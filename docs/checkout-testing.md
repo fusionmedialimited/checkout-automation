@@ -116,8 +116,8 @@ rather than silently reporting a false pass.
 
 - [x] Project compiles: `./mvnw test-compile`
 - [x] Offline tests pass: `./mvnw test`
-- [ ] QA smoke run executed and confirmed green (requires explicit go-ahead to touch the
-      deployed site and install Chromium — see the deliverables message for this phase)
+- [x] QA smoke run executed and confirmed green: `./mvnw test -Dtest=SmokeTestRunner`, both
+      headless (default) and headed (`-Dqa.headless=false`), against master QA
 - [x] CI runs compilation + offline tests on PR/push, and QA smoke only as a manual, artifact
       uploading workflow
 - [x] No fabricated APIs, selectors (beyond what was live-verified), coupon rules, or

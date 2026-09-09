@@ -10,6 +10,8 @@ import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.Tracing;
 import com.microsoft.playwright.assertions.PlaywrightAssertions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -25,6 +27,8 @@ import java.util.Locale;
  * thread-safe by design.
  */
 public final class BrowserResources {
+
+    private static final Logger LOG = LoggerFactory.getLogger(BrowserResources.class);
 
     private Playwright playwright;
     private Browser browser;
@@ -80,15 +84,21 @@ public final class BrowserResources {
         }
     }
 
+    /** Best-effort: closing one resource never skips the others, even if it throws. */
     public void close() {
-        if (context != null) {
-            context.close();
+        closeQuietly("context", context);
+        closeQuietly("browser", browser);
+        closeQuietly("playwright", playwright);
+    }
+
+    private void closeQuietly(String resourceName, AutoCloseable closeable) {
+        if (closeable == null) {
+            return;
         }
-        if (browser != null) {
-            browser.close();
-        }
-        if (playwright != null) {
-            playwright.close();
+        try {
+            closeable.close();
+        } catch (Exception e) {
+            LOG.warn("Failed to close Playwright {}", resourceName, e);
         }
     }
 
