@@ -28,10 +28,19 @@
 
 ### User provisioning
 
-No approved provisioning API or internal tool was discovered in this environment (no GitHub
-MCP, no internal user-provisioning MCP tool, no documented endpoint was supplied). Per the
-task's own instructions, this is left unimplemented rather than invented. The future
-`provisioning` package should expose something like:
+No provisioning API or internal tool is confirmed approved for this project's use, so this is
+left unimplemented rather than invented, per the task's own instructions. That said, a
+**candidate** is no longer purely hypothetical: `fusionmedialimited/Cucumber-Playwright-POC`'s
+`UserApiHandler` calls internal, undocumented-to-us endpoints — `/members-admin/auth/signUpByEmail`,
+`/members-admin/auth/signInByEmail`, a mobile-API temp-user endpoint
+(`login_api.php?data={"action":"register_anon"}...`), `/members-admin/service/verifyEmailCode`,
+and `/dev-tools/removeUserAutomation.php` / `/dev-tools/removeUser.php` for cleanup — which
+proves *some* internal mechanism exists in the org, not that it's approved for this project.
+Before adopting any of it: confirm with whoever owns those endpoints that this project may call
+them, confirm they behave the same against master QA as they do wherever that reference project
+targets them, and confirm they're not scoped/rate-limited in a way that assumes a single
+sibling project's usage pattern. Until then, the future `provisioning` package should expose
+something like:
 
 ```java
 public interface UserProvisioningService {
@@ -45,8 +54,11 @@ registration only used when registration itself is the thing under test.
 
 ### Test email / verification
 
-No approved test email domain or inbox service (e.g. a disposable-inbox API) was identified.
-Required before any new-user flow can be automated end to end.
+No approved test email domain or inbox service (e.g. a disposable-inbox API) was identified. The
+same reference project's `getEmailVerificationCode`/`requestVerificationCodeWithRetries` (POSTing
+to `/dev-tools/getVerificationCode.php`, retrying since the code can arrive with a delay) is the
+same kind of unconfirmed-but-real candidate as the provisioning endpoints above — same caveat
+applies before this project relies on it.
 
 ### Plan and coupon fixtures
 
