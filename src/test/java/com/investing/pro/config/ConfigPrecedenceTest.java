@@ -96,6 +96,12 @@ class ConfigPrecedenceTest {
     }
 
     @Test
+    void getBoolean_rejectsValuesThatAreNotExactlyTrueOrFalse() {
+        System.setProperty("qa.allowUserCreation", "treu");
+        assertThrows(ConfigValidationException.class, Config::allowUserCreation);
+    }
+
+    @Test
     void paymentMode_hasNoDefault_andFailsClosed() {
         assertThrows(ConfigValidationException.class, Config::paymentMode);
     }

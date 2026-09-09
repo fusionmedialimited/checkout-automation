@@ -44,8 +44,9 @@ public final class Hooks {
         try {
             captureArtifactsIfNeeded(scenario);
         } catch (RuntimeException e) {
-            // Artifact capture must never mask the scenario's own pass/fail result.
-            LOG.warn("Artifact capture failed for scenario '{}': {}", scenario.getName(), e.getMessage());
+            // Artifact capture must never mask the scenario's own pass/fail result. Pass the
+            // exception itself (not just its message) so the stack trace survives in the logs.
+            LOG.warn("Artifact capture failed for scenario '{}'", scenario.getName(), e);
         } finally {
             browserResources.close();
         }
@@ -59,7 +60,9 @@ public final class Hooks {
         String artifactName = testRunContext.runId() + "_" + testRunContext.scenarioId();
         browserResources.finishTracing(shouldCapture, ARTIFACT_ROOT.resolve("traces").resolve(artifactName + ".zip"));
 
-        if (shouldCapture) {
+        // browserResources.page() is null if @Before failed before creating a page (e.g. the
+        // browser itself failed to launch); there is nothing to screenshot in that case.
+        if (shouldCapture && browserResources.page() != null) {
             Path screenshotPath = ARTIFACT_ROOT.resolve("screenshots").resolve(artifactName + ".png");
             browserResources.captureScreenshot(screenshotPath);
             scenario.attach("Artifacts saved under " + screenshotPath.getParent(), "text/plain", artifactName);

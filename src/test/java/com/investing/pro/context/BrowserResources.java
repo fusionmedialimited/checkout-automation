@@ -2,6 +2,7 @@ package com.investing.pro.context;
 
 import com.investing.pro.config.ArtifactPolicy;
 import com.investing.pro.config.Config;
+import com.investing.pro.config.ConfigValidationException;
 import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
@@ -96,7 +97,7 @@ public final class BrowserResources {
         BrowserType.LaunchOptions options = new BrowserType.LaunchOptions().setHeadless(Config.headless());
         return switch (browserName) {
             case "chromium" -> playwright.chromium().launch(options);
-            default -> throw new IllegalArgumentException(
+            default -> throw new ConfigValidationException(
                     "Unsupported qa.browser '" + browserName + "'. Only 'chromium' is supported "
                             + "in this phase; firefox/webkit are future work (see docs/architecture.md).");
         };

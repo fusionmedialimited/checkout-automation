@@ -81,7 +81,15 @@ public final class Config {
     }
 
     public static boolean getBoolean(String key) {
-        return Boolean.parseBoolean(get(key));
+        String value = get(key);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        }
+        if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new ConfigValidationException(
+                "Invalid boolean value for '" + key + "': '" + value + "'; expected 'true' or 'false'.");
     }
 
     /**
