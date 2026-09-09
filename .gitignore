@@ -1,0 +1,25 @@
+target/
+*.class
+
+# Maven
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+# .idea/ and the .iml file are intentionally tracked in this repo (already committed project
+# metadata) rather than ignored — don't re-add an ignore rule that contradicts that.
+.vscode/
+
+# OS
+.DS_Store
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Playwright / test artifacts
+node_modules/
+ms-playwright/
+
+# Logs
+*.log
