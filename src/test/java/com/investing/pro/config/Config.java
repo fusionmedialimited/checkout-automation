@@ -56,7 +56,13 @@ public final class Config {
     }
 
     public static int timeoutMs() {
-        return Integer.parseInt(get("qa.timeoutMs"));
+        String value = get("qa.timeoutMs");
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            throw new ConfigValidationException(
+                    "Invalid integer value for 'qa.timeoutMs': '" + value + "'.", e);
+        }
     }
 
     public static ArtifactPolicy artifactPolicy() {

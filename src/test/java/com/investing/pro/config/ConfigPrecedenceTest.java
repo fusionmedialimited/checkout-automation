@@ -20,6 +20,7 @@ class ConfigPrecedenceTest {
         System.clearProperty("qa.baseUrl");
         System.clearProperty("qa.allowUserCreation");
         System.clearProperty("qa.paymentMode");
+        System.clearProperty("qa.timeoutMs");
     }
 
     @Test
@@ -113,6 +114,17 @@ class ConfigPrecedenceTest {
     void getBoolean_rejectsValuesThatAreNotExactlyTrueOrFalse() {
         System.setProperty("qa.allowUserCreation", "treu");
         assertThrows(ConfigValidationException.class, Config::allowUserCreation);
+    }
+
+    @Test
+    void timeoutMs_returnsCheckedInDefault_whenNotOverridden() {
+        assertEquals(30000, Config.timeoutMs());
+    }
+
+    @Test
+    void timeoutMs_rejectsNonIntegerValue_withConfigValidationExceptionNotNumberFormatException() {
+        System.setProperty("qa.timeoutMs", "not-a-number");
+        assertThrows(ConfigValidationException.class, Config::timeoutMs);
     }
 
     @Test

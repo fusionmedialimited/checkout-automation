@@ -39,7 +39,7 @@ public final class BrowserResources {
         context.setDefaultTimeout(Config.timeoutMs());
         // Web-first assertions (assertThat(...)) use their own, separate default timeout
         // (5000ms) that context.setDefaultTimeout above does not affect — without this call
-        // qa.timeoutMs would silently not apply to any pages/ assertion.
+        // qa.timeoutMs would silently not apply to any assertion made in the pages package.
         PlaywrightAssertions.setDefaultAssertionTimeout(Config.timeoutMs());
         page = context.newPage();
 
