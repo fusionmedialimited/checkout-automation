@@ -9,10 +9,12 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Per-scenario state, injected by PicoContainer so every scenario gets its own instance (see
- * cucumber.properties / cucumber-picocontainer on the classpath). Holds identifiers and the
- * resources a scenario creates, so they can be logged, reported, and — once a provisioning
- * integration exists — cleaned up without guessing what a scenario actually did.
+ * Per-scenario state, injected by PicoContainer so every scenario gets its own instance — the
+ * cucumber-picocontainer dependency on the classpath registers PicoContainer as Cucumber's
+ * object factory via {@code ServiceLoader} automatically, no {@code cucumber.properties} file is
+ * involved. Holds identifiers and the resources a scenario creates, so they can be logged,
+ * reported, and — once a provisioning integration exists — cleaned up without guessing what a
+ * scenario actually did.
  */
 public final class TestRunContext {
 

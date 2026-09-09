@@ -67,6 +67,14 @@ class ConfigPrecedenceTest {
     }
 
     @Test
+    void resolve_trimsSurroundingWhitespaceFromTheResolvedValue() {
+        Properties defaults = defaultsWith(KEY, "from-default");
+        assertEquals("from-property", Config.resolve(KEY, key -> " from-property ", key -> null, defaults));
+        assertEquals("from-env", Config.resolve(KEY, key -> null, key -> " from-env ", defaults));
+        assertEquals("from-default", Config.resolve(KEY, key -> null, key -> null, defaultsWith(KEY, " from-default ")));
+    }
+
+    @Test
     void envKey_upperCasesAndReplacesDotsWithUnderscores() {
         assertEquals("QA_ALLOW_USER_CREATION", Config.envKey("qa.allow.user.creation"));
     }
@@ -92,6 +100,12 @@ class ConfigPrecedenceTest {
     @Test
     void allowUserCreation_canBeOverriddenBySystemProperty() {
         System.setProperty("qa.allowUserCreation", "true");
+        assertTrue(Config.allowUserCreation());
+    }
+
+    @Test
+    void getBoolean_toleratesSurroundingWhitespace() {
+        System.setProperty("qa.allowUserCreation", " true ");
         assertTrue(Config.allowUserCreation());
     }
 

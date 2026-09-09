@@ -100,13 +100,14 @@ public final class Config {
                            Function<String, String> environment, Properties defaults) {
         String fromProperty = systemProperties.apply(key);
         if (fromProperty != null && !fromProperty.isBlank()) {
-            return fromProperty;
+            return fromProperty.trim();
         }
         String fromEnv = environment.apply(envKey(key));
         if (fromEnv != null && !fromEnv.isBlank()) {
-            return fromEnv;
+            return fromEnv.trim();
         }
-        return defaults.getProperty(key);
+        String fromDefaults = defaults.getProperty(key);
+        return fromDefaults == null ? null : fromDefaults.trim();
     }
 
     static String envKey(String key) {
