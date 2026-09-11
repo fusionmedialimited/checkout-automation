@@ -10,11 +10,6 @@ on:
         description: 'Override qa.baseUrl (leave blank to use config/default.properties)'
         required: false
         type: string
-      headless:
-        description: 'Run the browser headless'
-        required: false
-        type: boolean
-        default: true
       retry:
         description: >
           Retries for scenarios that fail (reruns only the failed ones, via Cucumber's rerun
@@ -41,7 +36,9 @@ jobs:
     container: mcr.microsoft.com/playwright/java:v1.52.0-noble
     env:
       QA_BASEURL: ${{ inputs.baseUrl }}
-      QA_HEADLESS: ${{ inputs.headless }}
+      # Always headless here, not configurable: this container has no display server (confirmed
+      # against Playwright's own Docker docs — no Xvfb/noVNC by default), so a headed launch
+      # would just fail. Headed is a local-only debugging option (see README.md), not a CI one.
       # Unset today — no Slack webhook secret has been created for this project. The notify step
       # below is a no-op until one is added in repo settings (see docs/architecture.md
       # "Reporting"); adding that secret is a deliberate, separate decision, not made here.

@@ -20,8 +20,8 @@ Checklist to apply to any change in this repo:
   committed config? Any new logger that could capture payment request/response bodies?
 - **Artifacts**: does a new sensitive step (payment form, card entry) disable screenshot/trace
   capture around itself, per `docs/payment-safety.md`?
-- **CI**: does `mvn test` (no arguments) still avoid any browser or network access after this
-  change? Does the QA smoke workflow remain manual-only, with no scheduled or push-triggered
+- **CI**: does `./gradlew test` (no arguments) still avoid any browser or network access after
+  this change? Does the QA smoke workflow remain manual-only, with no scheduled or push-triggered
   checkout/payment execution, and no automatic retry of a payment submission anywhere?
 - **Cleanup**: does cleanup code ever claim to perform an operation (delete/cancel/refund) it
   didn't actually perform, or run in a way that could hide a prior failure?

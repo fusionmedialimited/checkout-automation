@@ -110,11 +110,14 @@ browser or the network — see `docs/checkout-testing.md` for the exact commands
   needed. The image tag's version must be bumped in lockstep with `playwrightVersion` in
   `build.gradle`; a mismatch risks the container's browser build drifting from the Playwright
   Java client driving it.
-- `qa-smoke.yml` exposes `baseUrl` and `headless` as `workflow_dispatch` inputs, passed through
-  as `QA_BASEURL`/`QA_HEADLESS` environment variables — `Config`'s existing precedence chain
-  (env var over checked-in default) picks them up with no code change. Browser choice is
-  intentionally not exposed as an input: only Chromium is supported today
-  (`BrowserResources.launchBrowser`), so a variable input would just add a way to fail.
+- `qa-smoke.yml` exposes `baseUrl` as a `workflow_dispatch` input, passed through as
+  `QA_BASEURL` — `Config`'s existing precedence chain (env var over checked-in default) picks it
+  up with no code change. `headless` is deliberately **not** exposed here (always headless in
+  CI): the `mcr.microsoft.com/playwright/java` container has no display server (Playwright's own
+  Docker docs confirm no Xvfb/noVNC by default), so a headed launch would just fail — headed
+  stays a local-only debugging option (see `README.md`). Browser choice is likewise not exposed:
+  only Chromium is supported today (`BrowserResources.launchBrowser`), so a variable input would
+  just add a way to fail.
 - A future workflow that runs authorized sandbox or real-card purchases (see
   `docs/checkout-testing.md` → "Execution paths") needs its own runner-scope review before it is
   created — do not assume `medium`'s current access/secret scope is appropriate for that

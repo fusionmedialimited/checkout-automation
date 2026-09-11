@@ -34,10 +34,10 @@ public final class IdGenerator {
             return "gha-" + ci;
         }
         // The timestamp alone only has one-second resolution, so two local JVMs started in the
-        // same second would otherwise collide — the random suffix (same style as scenarioId's)
-        // guarantees uniqueness regardless.
-        String shortSuffix = UUID.randomUUID().toString().substring(0, 8);
-        return "local-" + TIMESTAMP.format(Instant.now().atZone(java.time.ZoneOffset.UTC)) + "-" + shortSuffix;
+        // same second would otherwise collide — a full UUID suffix (same reasoning as
+        // scenarioId's below) guarantees uniqueness regardless.
+        String suffix = UUID.randomUUID().toString();
+        return "local-" + TIMESTAMP.format(Instant.now().atZone(java.time.ZoneOffset.UTC)) + "-" + suffix;
     }
 
     public static String scenarioId(String scenarioName) {
@@ -47,7 +47,10 @@ public final class IdGenerator {
         if (slug.length() > MAX_SLUG_LENGTH) {
             slug = slug.substring(0, MAX_SLUG_LENGTH).replaceAll("-$", "");
         }
-        String shortSuffix = UUID.randomUUID().toString().substring(0, 8);
-        return (slug.isBlank() ? "scenario" : slug) + "-" + shortSuffix;
+        // A full UUID (122 bits of randomness), not a truncated prefix: an 8-hex-char prefix
+        // (32 bits) risks a birthday-bound collision within a single large run, which would
+        // make two scenarios silently overwrite each other's trace/screenshot/video files.
+        String suffix = UUID.randomUUID().toString();
+        return (slug.isBlank() ? "scenario" : slug) + "-" + suffix;
     }
 }

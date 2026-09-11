@@ -132,10 +132,11 @@ whether it reuses the same runner pool.
 
 - [x] Project compiles: `./gradlew testClasses`
 - [x] Offline tests pass: `./gradlew test`
-- [x] QA smoke run executed and confirmed green: `./mvnw test -Dtest=SmokeTestRunner` (Maven, at
-      the time), both headless (default) and headed (`-Dqa.headless=false`), against master QA —
-      not yet re-verified against the same target since the Gradle migration; see
-      `docs/architecture.md` "CI runners" for what qa-smoke.yml now uses
+- [ ] QA smoke run executed and confirmed green against `./gradlew qaSmokeTest`: previously
+      verified green (both headless and headed, locally) under the Maven-era
+      `./mvnw test -Dtest=SmokeTestRunner`, on 2026-09-09 — not yet re-verified under Gradle
+      against the real target; see `docs/architecture.md` "CI runners" for what qa-smoke.yml now
+      uses. Leave this unchecked until an actual `qaSmokeTest` run against master QA is confirmed.
 - [x] CI runs compilation + offline tests on PR/push, and QA smoke only as a manual, artifact
       uploading workflow
 - [x] No fabricated APIs, selectors (beyond what was live-verified), coupon rules, or

@@ -15,8 +15,8 @@ class IdGeneratorTest {
         String longName = "a".repeat(200);
         String id = IdGenerator.scenarioId(longName);
 
-        // slug (<=60 chars) + "-" + an 8-char random suffix
-        assertTrue(id.length() <= 69, "expected a bounded id, got length " + id.length() + ": " + id);
+        // slug (<=60 chars) + "-" + a full UUID suffix (36 chars)
+        assertTrue(id.length() <= 97, "expected a bounded id, got length " + id.length() + ": " + id);
     }
 
     @Test
@@ -25,7 +25,7 @@ class IdGeneratorTest {
         String longName = "word-".repeat(40);
         String id = IdGenerator.scenarioId(longName);
 
-        assertFalse(id.matches(".*--[0-9a-f-]{8}$"), "truncation should not leave a double hyphen: " + id);
+        assertFalse(id.matches(".*--[0-9a-f-]{36}$"), "truncation should not leave a double hyphen: " + id);
     }
 
     @Test
