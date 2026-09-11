@@ -1,7 +1,9 @@
 package com.investing.pro.safety;
 
+import com.investing.pro.config.Config;
 import com.investing.pro.config.ConfigValidationException;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -11,6 +13,16 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 @DisplayName("PaymentSafetyGate: user-creation, sandbox-purchase, and real-card-purchase authorization")
 class PaymentSafetyGateTest {
 
+    @BeforeEach
+    void isolateFromRealEnvironment() {
+        // PaymentSafetyGate resolves qa.allow*/qa.paymentMode/qa.realCardAuthorizationRef
+        // through Config, which falls back to real environment variables (QA_ALLOW*,
+        // QA_PAYMENTMODE, ...) when no system property is set. Without this, an actually-exported
+        // QA_* variable would make the default-disabled and missing-mode tests below pass or fail
+        // for the wrong reason.
+        Config.useEnvironmentForTesting(key -> null);
+    }
+
     @AfterEach
     void clearAuthorizationFlags() {
         System.clearProperty("qa.allowUserCreation");
@@ -18,6 +30,7 @@ class PaymentSafetyGateTest {
         System.clearProperty("qa.allowRealCardPurchase");
         System.clearProperty("qa.paymentMode");
         System.clearProperty("qa.realCardAuthorizationRef");
+        Config.resetEnvironmentForTesting();
     }
 
     @Test

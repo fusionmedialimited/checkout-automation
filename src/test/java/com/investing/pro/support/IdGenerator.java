@@ -33,7 +33,11 @@ public final class IdGenerator {
         if (ci != null && !ci.isBlank()) {
             return "gha-" + ci;
         }
-        return "local-" + TIMESTAMP.format(Instant.now().atZone(java.time.ZoneOffset.UTC));
+        // The timestamp alone only has one-second resolution, so two local JVMs started in the
+        // same second would otherwise collide — the random suffix (same style as scenarioId's)
+        // guarantees uniqueness regardless.
+        String shortSuffix = UUID.randomUUID().toString().substring(0, 8);
+        return "local-" + TIMESTAMP.format(Instant.now().atZone(java.time.ZoneOffset.UTC)) + "-" + shortSuffix;
     }
 
     public static String scenarioId(String scenarioName) {

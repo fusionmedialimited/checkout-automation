@@ -1,6 +1,7 @@
 package com.investing.pro.config;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -16,6 +17,16 @@ class ConfigPrecedenceTest {
 
     private static final String KEY = "qa.someSetting";
 
+    @BeforeEach
+    void isolateFromRealEnvironment() {
+        // Tests below that call the real Config.baseUrl()/allowUserCreation()/etc. (not the
+        // resolve()-with-injected-functions ones) go through the real environment-variable
+        // lookup too. Without this, an actually-exported QA_* variable (e.g. from sourcing
+        // .env.example locally) would leak in and make default/missing-value assertions pass or
+        // fail for the wrong reason.
+        Config.useEnvironmentForTesting(key -> null);
+    }
+
     @AfterEach
     void clearRealSystemProperties() {
         System.clearProperty(KEY);
@@ -23,6 +34,7 @@ class ConfigPrecedenceTest {
         System.clearProperty("qa.allowUserCreation");
         System.clearProperty("qa.paymentMode");
         System.clearProperty("qa.timeoutMs");
+        Config.resetEnvironmentForTesting();
     }
 
     @Test
