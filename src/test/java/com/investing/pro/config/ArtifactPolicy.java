@@ -1,6 +1,6 @@
 package com.investing.pro.config;
 
-/** Controls when Playwright screenshots/traces are saved to {@code target/artifacts}. */
+/** Controls when Playwright screenshots/traces are saved to {@code build/artifacts}. */
 public enum ArtifactPolicy {
     ALWAYS,
     ON_FAILURE,

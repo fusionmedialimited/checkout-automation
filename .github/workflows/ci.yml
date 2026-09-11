@@ -16,10 +16,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-          cache: maven
 
-      # No browser is installed and no network target is touched here on purpose: `mvn test`
-      # only runs plain *Test.java classes (see pom.xml / docs/architecture.md). Anything that
-      # opens a browser lives in the separate, manual qa-smoke workflow.
+      - uses: gradle/actions/setup-gradle@v4
+
+      # No browser is installed and no network target is touched here on purpose: `test` only
+      # runs plain *Test classes (see build.gradle / docs/architecture.md). Anything that opens a
+      # browser lives in the separate, manual qa-smoke workflow.
       - name: Compile and run offline tests
-        run: ./mvnw -B test
+        run: ./gradlew test

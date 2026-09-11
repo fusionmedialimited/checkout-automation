@@ -1,8 +1,9 @@
-target/
+build/
 *.class
 
-# Maven
-.mvn/wrapper/maven-wrapper.jar
+# Gradle (the wrapper jar itself, gradle/wrapper/gradle-wrapper.jar, IS committed on purpose —
+# that's the whole point of the Gradle Wrapper, don't ignore it)
+.gradle/
 
 # IDE
 # .idea/ and the .iml file are intentionally tracked in this repo (already committed project

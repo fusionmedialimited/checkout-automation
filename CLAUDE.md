@@ -7,9 +7,9 @@ this file summarizes and points into them, it doesn't replace them.
 ## Build and test commands
 
 ```bash
-./mvnw test                                # offline: config/safety-gate tests only, no browser
-./mvnw test -Dtest=SmokeTestRunner          # QA smoke: loads master QA landing page only
-./mvnw test-compile                         # compile without running anything
+./gradlew test                             # offline: config/safety-gate tests only, no browser
+./gradlew qaSmokeTest                      # QA smoke: loads master QA landing page only
+./gradlew testClasses                      # compile without running anything
 ```
 
 There is no command for QA sandbox checkout or real-payment runs yet — no runner class exists
@@ -22,9 +22,10 @@ the gap instead.
 - Locators and raw Playwright calls: `pages/` only. Business-readable steps: `steps/` only,
   delegating to `pages/`, future `services/`, and `safety/`. Per-scenario state: `context/`,
   injected by PicoContainer (`cucumber-picocontainer`) — never a static field.
-- `mvn test` (no args) must never touch a browser or network target. This works because Cucumber
-  suite runners under `runners/` are named so they don't match surefire's default `*Test.java`
-  pattern; keep that naming convention for any new runner.
+- `./gradlew test` (no args) must never touch a browser or network target. This works because
+  Cucumber suite runners under `runners/` are named so they don't match the default `test` task's
+  `*Test` class-name pattern (see `build.gradle`); keep that naming convention for any new
+  runner, and give it its own dedicated Gradle task (like `qaSmokeTest`) to invoke it explicitly.
 - Full detail: `docs/architecture.md`.
 
 ## Checkout scope
@@ -68,15 +69,16 @@ capture around itself rather than relying on the scenario-level `qa.artifactPoli
 
 ## Failure investigation and ambiguous payments
 
-Read the actual failure (surefire report, Cucumber JSON/HTML under `target/`, screenshot/trace
-under `target/artifacts`) before proposing a fix — don't guess from the scenario name. Never
+Read the actual failure (JUnit XML report, Allure results under `build/allure-results`,
+screenshot/trace/video under `build/artifacts`) before proposing a fix — don't guess from the
+scenario name. Never
 add an automatic retry around a payment submission: an ambiguous outcome (timeout, unclear
 response) must be reconciled against the payment provider and/or subscription state before any
 second attempt, using the provider's idempotency mechanism once purchase submission exists.
 
 ## Definition of done
 
-A change is done when: it compiles (`./mvnw test-compile`), offline tests pass (`./mvnw test`),
+A change is done when: it compiles (`./gradlew testClasses`), offline tests pass (`./gradlew test`),
 any new chargeable action is gated through `PaymentSafetyGate`, any new selector was verified
 against a real page (or explicitly labeled unvalidated if it couldn't be), no secret or raw card
 data was added anywhere, and the relevant doc under `docs/` was updated in the same change — not

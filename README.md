@@ -9,37 +9,36 @@ payment flows — see `docs/checkout-testing.md` for exactly what's built vs. st
 
 ## Requirements
 
-- JDK 21 (any distribution). The Maven wrapper pins Maven 3.9.9 for you.
+- JDK 21 (any distribution). The Gradle wrapper pins Gradle 8.14.5 for you.
 - No other local install is required to run offline tests. Running the QA smoke suite also
   needs Chromium, installed via Playwright's own installer (see below) — Playwright will tell
-  you if it's missing rather than failing silently.
+  you if it's missing rather than failing silently. CI runs `qaSmokeTest` inside the official
+  `mcr.microsoft.com/playwright/java` container image instead, which ships Chromium
+  preinstalled — see `docs/architecture.md` "CI runners".
 
 ## Commands
 
 ```bash
 # Offline: config/safety-gate unit tests only. No browser, no network target.
-./mvnw test
+./gradlew test
 
 # One-time (or after upgrading the Playwright dependency): install the Chromium build
-# Playwright's Java bindings expect.
-./mvnw -q compile
-./mvnw -q org.codehaus.mojo:exec-maven-plugin:3.5.0:java \
-  -Dexec.mainClass=com.microsoft.playwright.CLI \
-  -Dexec.classpathScope=test \
-  -Dexec.args="install --with-deps chromium"
+# Playwright's Java bindings expect. Local dev only — CI's qa-smoke.yml runs inside a container
+# image that ships Chromium already, so it doesn't need this task.
+./gradlew installChromium
 
 # QA smoke: loads the master QA landing page only. No user creation, no payment.
-./mvnw test -Dtest=SmokeTestRunner
+./gradlew qaSmokeTest
 ```
 
 There is currently no command for QA sandbox checkout or authorized real-payment runs — those
-runner classes don't exist yet (see `docs/checkout-testing.md`).
+runner classes (and their own Gradle tasks) don't exist yet (see `docs/checkout-testing.md`).
 
 ## Project layout
 
 ```
 .
-├── pom.xml, mvnw, mvnw.cmd, .mvn/wrapper/
+├── build.gradle, settings.gradle, gradlew, gradlew.bat, gradle/wrapper/
 ├── .env.example              example env vars (not auto-loaded — see the file header)
 ├── CLAUDE.md                 project instructions for Claude Code
 ├── .claude/agents/           role definitions for framework/discovery/provisioning/review agents
@@ -64,6 +63,7 @@ runner classes don't exist yet (see `docs/checkout-testing.md`).
         ├── features/smoke/landing_page.feature
         ├── config/default.properties
         ├── junit-platform.properties
+        ├── allure.properties
         └── logback-test.xml
 ```
 

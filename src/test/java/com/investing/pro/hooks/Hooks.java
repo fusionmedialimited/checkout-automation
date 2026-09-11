@@ -23,7 +23,7 @@ import java.nio.file.Path;
 public final class Hooks {
 
     private static final Logger LOG = LoggerFactory.getLogger(Hooks.class);
-    private static final Path ARTIFACT_ROOT = Path.of("target", "artifacts");
+    private static final Path ARTIFACT_ROOT = Path.of("build", "artifacts");
 
     private final BrowserResources browserResources;
     private final TestRunContext testRunContext;
@@ -101,7 +101,10 @@ public final class Hooks {
         Path videoPath = ARTIFACT_ROOT.resolve("videos").resolve(artifactName + ".webm");
         browserResources.finishVideo(shouldCapture, videoPath);
 
-        if (shouldCapture) {
+        // finishVideo() is a no-op (no file written) if @Before failed before creating a page —
+        // same case captureTracingAndScreenshot() guards against above. Without this check, that
+        // case logs a misleading "failed to attach" warning that obscures the real failure.
+        if (shouldCapture && Files.exists(videoPath)) {
             try {
                 scenario.attach(Files.readAllBytes(videoPath), "video/webm", artifactName);
             } catch (IOException e) {

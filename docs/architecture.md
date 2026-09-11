@@ -2,7 +2,7 @@
 
 ## Project shape
 
-Single Maven module, everything under `src/test` — this is a test automation framework, not an
+Single Gradle project, everything under `src/test` — this is a test automation framework, not an
 application, so there is no `src/main`.
 
 ```
@@ -61,9 +61,9 @@ processor behind it is wired to sandbox or live credentials.
 
 - Fresh `BrowserContext` + `Page` per scenario (`BrowserResources.open()` / `close()`).
 - Tracing starts in every scenario (unless `qa.artifactPolicy=never`) and is only *saved* to
-  `target/artifacts/traces/<runId>_<scenarioId>.zip` when the artifact policy says to; otherwise
+  `build/artifacts/traces/<runId>_<scenarioId>.zip` when the artifact policy says to; otherwise
   it's discarded to avoid piling up disk usage on green runs.
-- Screenshots go to `target/artifacts/screenshots/<runId>_<scenarioId>.png` under the same
+- Screenshots go to `build/artifacts/screenshots/<runId>_<scenarioId>.png` under the same
   policy.
 - Video recording follows the same policy but has the opposite lifecycle to tracing/screenshots:
   Playwright requires the recording directory to be set at `browser.newContext()` time, before
@@ -71,7 +71,7 @@ processor behind it is wired to sandbox or live credentials.
   *closed* — so `BrowserResources` records to a scratch temp directory for the whole scenario,
   and `finishVideo(save, path)` (called from `Hooks` right after `closeContext()`, but before
   `close()` tears down the browser/driver connection the save/discard call still needs) either
-  copies it to `target/artifacts/videos/<runId>_<scenarioId>.webm` or deletes it, then always
+  copies it to `build/artifacts/videos/<runId>_<scenarioId>.webm` or deletes it, then always
   removes the scratch directory.
 - `runId` reuses `GITHUB_RUN_ID` in CI, else a local timestamp; `scenarioId` is a slug of the
   scenario name plus a random suffix — both exist specifically so artifact and log file names
@@ -81,11 +81,14 @@ processor behind it is wired to sandbox or live credentials.
 
 ## Test suite separation
 
-`mvn test` (no arguments) only runs plain JUnit Jupiter classes matching the default
-`**/*Test.java` pattern — see `pom.xml`'s surefire configuration. Cucumber suite runners live
-under the `runners` package and are named so they never match that pattern (e.g.
-`SmokeTestRunner`, not `SmokeTestRunnerTest`); they only run when named explicitly with
-`-Dtest=<RunnerClassName>`. This is what keeps "offline" (`mvn test`) from ever touching a
+`./gradlew test` (the default task, no other args) only runs plain JUnit Jupiter classes matching
+`**/*Test.class` — see `build.gradle`'s `test { include/exclude }` config. Cucumber suite runners
+live under the `runners` package and are named so they never match that pattern (e.g.
+`SmokeTestRunner`, not `SmokeTestRunnerTest`); each gets its own dedicated Gradle task (e.g.
+`qaSmokeTest`) instead of being reachable through `test` at all — Gradle's file-pattern
+`include`/`exclude` and its name-based test filter (`--tests`) are independently enforced (a
+class must pass both), so unlike Maven Surefire, an explicit test-name filter cannot override a
+task-level `exclude`. This is what keeps "offline" (`./gradlew test`) from ever touching a
 browser or the network — see `docs/checkout-testing.md` for the exact commands per suite.
 
 ## CI runners
@@ -100,13 +103,13 @@ browser or the network — see `docs/checkout-testing.md` for the exact commands
   own QA-targeting workflows. Both this project's use of that specific pool and the reachability
   constraint itself were confirmed by the project owner (2026-09-11). Using the pool is a
   CI-infrastructure choice only — it creates no runtime dependency on the reference project's
-  code, and this project's workflow still runs its own Maven/Java toolchain independently.
+  code, and this project's workflow still runs its own Gradle/Java toolchain independently.
 - `qa-smoke.yml`'s job runs inside the official `mcr.microsoft.com/playwright/java` container
   image (the same pattern the reference project uses for its browser-touching jobs), which ships
   Chromium and its OS dependencies preinstalled — no separate `playwright install` step is
-  needed. The image tag's version must be bumped in lockstep with `playwright.version` in
-  `pom.xml`; a mismatch risks the container's browser build drifting from the Playwright Java
-  client driving it.
+  needed. The image tag's version must be bumped in lockstep with `playwrightVersion` in
+  `build.gradle`; a mismatch risks the container's browser build drifting from the Playwright
+  Java client driving it.
 - `qa-smoke.yml` exposes `baseUrl` and `headless` as `workflow_dispatch` inputs, passed through
   as `QA_BASEURL`/`QA_HEADLESS` environment variables — `Config`'s existing precedence chain
   (env var over checked-in default) picks them up with no code change. Browser choice is
@@ -117,11 +120,16 @@ browser or the network — see `docs/checkout-testing.md` for the exact commands
   created — do not assume `medium`'s current access/secret scope is appropriate for that
   higher-stakes case just because it was confirmed appropriate for the read-only smoke scenario.
 - `qa-smoke.yml` retries only previously-failed scenarios, via Cucumber's `rerun:` plugin output
-  (`target/cucumber-rerun/smoke.txt`) — never a blanket rerun of the whole suite, which would
-  silently redo any already-passed scenario. How many retries to attempt is a `workflow_dispatch`
-  choice input (`0`/`1`/`2`, default `0`), so retrying is opt-in per invocation, not automatic.
-  Every attempt's surefire/cucumber-report/artifacts are snapshotted under
-  `target/attempts/attempt-N` before the next attempt can overwrite them, and a run that only
+  (`build/cucumber-rerun/smoke.txt`) — never a blanket rerun of the whole suite, which would
+  silently redo any already-passed scenario. The rerun file's URIs are read and passed back in
+  directly (comma-joined) via `-Dcucumber.features=...`, forwarded into the `qaSmokeTest` task's
+  forked JVM via `systemProperties = System.properties`; the `@file` syntax is deliberately not
+  used — confirmed empirically that the JUnit Platform engine's `cucumber.features` parameter
+  silently ignores it (selecting zero scenarios and reporting a false "success", unlike
+  Cucumber's own CLI, which does support that syntax). How many retries to attempt is a
+  `workflow_dispatch` choice input (`0`/`1`/`2`, default `0`), so retrying is opt-in per
+  invocation, not automatic. Every attempt's test-results/artifacts are snapshotted under
+  `build/attempts/attempt-N` before the next attempt can overwrite them, and a run that only
   passed after retrying is flagged in the workflow log as flaky rather than reported as clean —
   see `docs/payment-safety.md` "Ambiguous outcomes and retries" for why this mechanism must never
   be reused for a suite that includes a payment-submitting scenario.
@@ -131,22 +139,38 @@ browser or the network — see `docs/checkout-testing.md` for the exact commands
 
 ## Reporting
 
-- Cucumber's own `pretty`/`html`/`json` plugins (configured on `SmokeTestRunner`) and Surefire's
-  XML/text reports remain the baseline — always produced, no extra dependency required.
-- Allure (`allure-cucumber7-jvm`, added to `SmokeTestRunner`'s plugin list) additionally writes
-  step- and attachment-level results to `target/allure-results`. The `allure-maven` build plugin
-  (`mvn allure:report`, not bound to any lifecycle phase, so it never runs as part of plain
-  `mvn test`) turns those into a static HTML report under `target/site/allure-maven-plugin`.
-  `qa-smoke.yml` generates and uploads both as workflow artifacts.
-- Deliberately **not** wired: pushing results to the shared, self-hosted Allure Portal that
-  `Cucumber-Playwright-POC` uses. That portal's own docs list authentication as "TBD" — there is
-  no auth on its upload/delete endpoints — so nothing from this project, even sandbox-only data,
-  should go there until that's resolved. If it is resolved later, pushing would be an additive
-  CI step, not a reason to remove the artifact-only path above.
-- Scenario screenshots are attached to the running scenario as actual image bytes
-  (`Hooks.captureArtifactsIfNeeded`), not just a path reference, so the image renders inline in
-  both the Cucumber HTML report and the Allure report — both formatters read the same Cucumber
-  attachment event, so this needed no formatter-specific code.
+- **BDD (`SmokeTestRunner`)**: Allure (`allure-cucumber7-jvm`, a plain `testImplementation`
+  dependency — no `io.qameta.allure` Gradle plugin) is the canonical report — it writes step- and
+  attachment-level results to `build/allure-results`. `qa-smoke.yml` uploads those raw results as
+  a workflow artifact; there is deliberately no generated HTML report in CI — the
+  `io.qameta.allure` Gradle plugin's own report-generation task pulls in an Allure 3 CLI via Node
+  that failed to run reliably when tried in practice, and the reference project's own local
+  report flow doesn't use that Gradle task either (it shells out to the `allure` npm CLI
+  directly). Raw results are enough: they're also what would be pushed to the shared Allure
+  Portal once that's wired up, since the portal renders the report server-side from raw results,
+  not from a pre-rendered file. Cucumber's own `html`/`json` plugins are deliberately **not**
+  registered (only `pretty`, for console output during a run) — keeping one BDD report format
+  instead of two that could drift out of sync. Scenario screenshots and video are attached as
+  actual bytes (`Hooks`), not just a path reference, so they show up directly in Allure's own
+  result data.
+- **Unit tests** (`*Test.java`) keep plain JUnit XML reports and are deliberately **not** routed
+  through Allure (no `allure-junit5`): this suite's `SmokeTestRunner` runs the Cucumber engine
+  through a JUnit Platform `@Suite`, and adding `allure-junit5` risks it also instrumenting that
+  Suite's own JUnit-Platform-engine node — producing duplicate/conflicting Allure results for the
+  same scenario — since the two adapters aren't scoped to run in isolation from each other within
+  one JVM. Since unit tests and `SmokeTestRunner` are always invoked as separate Gradle task runs
+  today anyway (`ci.yml`'s `test` vs. `qa-smoke.yml`'s `qaSmokeTest`), there's no actual need to
+  make them share one Allure setup.
+- **Allure Portal**: pushing results to the shared, self-hosted Allure Portal that
+  `Cucumber-Playwright-POC` uses was initially deferred because that portal's own docs list
+  authentication as "TBD" (no auth on its upload/delete endpoints). The portal's owner clarified
+  that it is reachable only from InvestingPro's internal network (no access without VPN) and
+  considers that network-level gating sufficient — so this is no longer a blocker in principle,
+  and the owner has offered a project/folder to push into. Not yet wired: this still needs the
+  exact portal base URL, target project id, and confirmation of whether a secret is actually
+  required for the push call (the portal's own docs currently suggest none is). Until those are
+  confirmed, results stay CI-artifact-only as described above; wiring the push later is additive,
+  not a reason to remove the artifact-only path.
 
 ## Reference project
 
@@ -162,9 +186,12 @@ instead of reference-specific ones — see git history for that phase's reasonin
   payment or subscription. The repo's real coverage is WarrenAI, Pro (Ideas/Charts/Auth),
   Equities/ETFs/Instruments, and navigation/registration. Nothing here informs checkout-specific
   conventions; only its general framework conventions do.
-- **Different tech stack by design, not oversight**: Java 17 + Gradle + Allure 3 reporting +
-  parallel execution by default, vs. this project's Java 21 + Maven + Cucumber/JUnit reporting +
-  sequential execution — the latter set were explicit requirements given for this project, not a
+- **Different tech stack by design in most respects, though this project has since also moved to
+  Gradle** (2026-09-11, once it was confirmed to be the org-wide standard rather than a
+  POC-specific choice — see git history for that decision) **for build tooling specifically**.
+  What's still deliberately different: Java 17 there vs. Java 21 here; Allure 3 + parallel
+  execution by default there, vs. this project's Allure 2 (raw results only, no portal push yet)
+  + sequential execution — those were, and remain, explicit requirements for this project, not a
   deviation to reconcile.
 - **Same DI mechanism, different shape**: they also use PicoContainer via cucumber-picocontainer
   (`org.picocontainer.annotations.Inject` field injection into a single flat `TestContext`
@@ -205,14 +232,17 @@ instead of reference-specific ones — see git history for that phase's reasonin
   adding locator-builder convenience methods. This project keeps the simpler inheritance pattern
   (`BasePage`) for now given its current single-page scope; worth revisiting only if locator
   convenience methods start getting duplicated across many page objects.
-- **Heavier reporting pipeline**: Allure 3 (self-hosted Allure Portal, Slack notification action,
-  video recording on failure) vs. this project's Cucumber HTML/JSON + JUnit XML + Playwright
-  tracing. This project has since adopted Allure 2 (`allure-cucumber7-jvm`) for local/CI report
-  generation only — see "Reporting" above — but deliberately does not push to the shared Allure
-  Portal, since that portal has no upload authentication. It has also since added video recording
-  under the same `qa.artifactPolicy` used for tracing/screenshots (see "Browser lifecycle and
-  diagnostics" above) — on top of, not instead of, the Playwright tracing (screenshots + DOM
-  snapshots + timeline) the reference project's screenshot/video-only capture doesn't have.
+- **Heavier reporting pipeline, originally**: Allure 3 (self-hosted Allure Portal, Slack
+  notification action, video recording on failure) vs. this project's initial Cucumber HTML/JSON
+  + JUnit XML + Playwright tracing. This project has since adopted Allure 2
+  (`allure-cucumber7-jvm`, raw results only — see "Reporting" above) for its BDD suite, replacing
+  its own Cucumber HTML/JSON entirely, and added video recording under the same
+  `qa.artifactPolicy` used for tracing/screenshots (see "Browser lifecycle and diagnostics"
+  above), on top of — not instead of — the Playwright tracing (screenshots + DOM snapshots +
+  timeline) the reference project's screenshot/video-only capture doesn't have. Pushing to the
+  shared Allure Portal is not yet wired (see "Reporting" above for what's still needed), but is
+  no longer deferred on security grounds — the portal's internal-network gating was confirmed
+  sufficient by its owner.
 
 ## Deliberately unimplemented (this phase)
 

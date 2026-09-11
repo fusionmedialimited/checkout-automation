@@ -8,7 +8,7 @@
 # Datasource local storage ignored files
 /dataSources/
 /dataSources.local.xml
-# Auto-generated on every Maven re-import; regenerates identically from pom.xml, not shared config
+# Auto-generated on every Gradle re-import; regenerates identically from build.gradle, not shared config
 /libraries/
 /modules.xml
 /compiler.xml

@@ -1,7 +1,7 @@
 # MCP / agent tooling (development-time only)
 
-**Nothing in this document affects the Java test suite at runtime.** `./mvnw test` and
-`-Dtest=SmokeTestRunner` run as plain JVM processes with no dependency on Claude, MCP, or any
+**Nothing in this document affects the Java test suite at runtime.** `./gradlew test` and
+`./gradlew qaSmokeTest` run as plain JVM processes with no dependency on Claude, MCP, or any
 of the tools below. This file exists to record what was available to Claude Code *while
 building and will be available while extending* this framework, so future contributors don't
 have to rediscover it.

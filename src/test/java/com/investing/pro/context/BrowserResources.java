@@ -98,11 +98,15 @@ public final class BrowserResources {
      * live browser/driver connection, which {@link #close()} tears down.
      */
     public void finishVideo(boolean save, Path path) {
-        if (videoDir == null || page == null) {
+        if (videoDir == null) {
             return;
         }
         try {
-            Video video = page.video();
+            // page is null if @Before failed before creating it (e.g. the browser itself failed
+            // to launch) — there is no video to finalize in that case, but the temp directory
+            // created for it in open() still needs cleaning up, hence this check is inside the
+            // try/finally rather than an early return that would skip that cleanup.
+            Video video = page == null ? null : page.video();
             if (video != null) {
                 if (save) {
                     createParentDirs(path);

@@ -14,7 +14,7 @@
 
 ## Implemented in this phase
 
-- Project scaffold, dependency versions, Maven build, wrapper
+- Project scaffold, dependency versions, Gradle build, wrapper
 - Configuration precedence and validation (`Config`)
 - Payment/user-creation safety gates (`PaymentSafetyGate`) — enforcement only; nothing calls
   them yet because nothing creates users or purchases yet
@@ -24,9 +24,9 @@
   against a live browser session against master QA on 2026-09-09 (see `LandingPage` Javadoc).
   It only asserts the page loads — no user creation, no purchase.
 - Offline tests for configuration precedence and safety-gate behavior
-- Allure reporting for `SmokeTestRunner` (results + generated HTML report, uploaded as a CI
-  artifact only — not pushed to any shared portal) alongside the existing Cucumber/Surefire
-  reports; see `docs/architecture.md` "Reporting"
+- Allure reporting for `SmokeTestRunner` (raw results, uploaded as a CI artifact only — not
+  pushed to any shared portal yet), replacing Cucumber's own HTML/JSON report; unit tests keep
+  plain JUnit XML reports; see `docs/architecture.md` "Reporting"
 - Opt-in, scenario-scoped retry for `SmokeTestRunner` only (`qa-smoke.yml`'s `retry` input); see
   `docs/payment-safety.md` "Ambiguous outcomes and retries" for why this must not be reused for a
   suite that submits payments without re-reading that section first
@@ -112,14 +112,15 @@ being invented scenario-by-scenario.
 
 | Path | Command | Touches network/browser? | Can create users / pay? |
 |---|---|---|---|
-| Offline validation | `./mvnw test` | No | No |
-| QA smoke | `./mvnw test -Dtest=SmokeTestRunner` | Yes (master QA only) | No |
-| QA sandbox checkout | *(future — no runner exists yet)* | Yes | Only with `qa.allowUserCreation`/`qa.allowSandboxPurchase` set |
-| Authorized real-payment | *(future — no runner exists yet)* | Yes | Only with the full real-card gate satisfied, see `docs/payment-safety.md` |
+| Offline validation | `./gradlew test` | No | No |
+| QA smoke | `./gradlew qaSmokeTest` | Yes (master QA only) | No |
+| QA sandbox checkout | *(future — no runner or Gradle task exists yet)* | Yes | Only with `qa.allowUserCreation`/`qa.allowSandboxPurchase` set |
+| Authorized real-payment | *(future — no runner or Gradle task exists yet)* | Yes | Only with the full real-card gate satisfied, see `docs/payment-safety.md` |
 
-An unsupported path (sandbox checkout, real-payment) has no runner class at all right now, so
-attempting `-Dtest=CheckoutSandboxRunner` (or similar) fails with "no tests were executed"
-rather than silently reporting a false pass.
+An unsupported path (sandbox checkout, real-payment) has no runner class or Gradle task at all
+right now, so there is nothing to invoke for it — a future runner needs both a new `runners`
+class and its own dedicated task in `build.gradle` (following `qaSmokeTest`'s pattern), not a
+`--tests` filter added to an existing task.
 
 None of InvestingPro's QA environments are publicly reachable, so any path that touches one in
 CI needs a runner with internal network access — see `docs/architecture.md` → "CI runners" for
@@ -129,10 +130,12 @@ whether it reuses the same runner pool.
 
 ## Definition of done (this phase)
 
-- [x] Project compiles: `./mvnw test-compile`
-- [x] Offline tests pass: `./mvnw test`
-- [x] QA smoke run executed and confirmed green: `./mvnw test -Dtest=SmokeTestRunner`, both
-      headless (default) and headed (`-Dqa.headless=false`), against master QA
+- [x] Project compiles: `./gradlew testClasses`
+- [x] Offline tests pass: `./gradlew test`
+- [x] QA smoke run executed and confirmed green: `./mvnw test -Dtest=SmokeTestRunner` (Maven, at
+      the time), both headless (default) and headed (`-Dqa.headless=false`), against master QA —
+      not yet re-verified against the same target since the Gradle migration; see
+      `docs/architecture.md` "CI runners" for what qa-smoke.yml now uses
 - [x] CI runs compilation + offline tests on PR/push, and QA smoke only as a manual, artifact
       uploading workflow
 - [x] No fabricated APIs, selectors (beyond what was live-verified), coupon rules, or
