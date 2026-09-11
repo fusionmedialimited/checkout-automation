@@ -27,9 +27,12 @@ public record TestUserRef(String userId, String email, String runId, String scen
      * Additive, not a replacement — see {@code SubscriptionRef.withCleanupStatus} and
      * {@code docs/payment-safety.md} "Cleanup is not one operation" for why a single value would
      * lose information (e.g. a failed attempt followed by a successful one).
+     * {@link CleanupStatus#NOT_ATTEMPTED} is removed here rather than accumulated: it's a pure
+     * placeholder, not a historical fact worth keeping once a real status exists.
      */
     public TestUserRef withCleanupStatus(CleanupStatus newStatus) {
         Set<CleanupStatus> updated = new LinkedHashSet<>(cleanupStatuses);
+        updated.remove(CleanupStatus.NOT_ATTEMPTED);
         updated.add(newStatus);
         return new TestUserRef(userId, email, runId, scenarioId, updated);
     }

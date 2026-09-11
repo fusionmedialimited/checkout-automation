@@ -6,10 +6,6 @@ name: QA Smoke (manual)
 on:
   workflow_dispatch:
     inputs:
-      baseUrl:
-        description: 'Override qa.baseUrl (leave blank to use config/default.properties)'
-        required: false
-        type: string
       retry:
         description: >
           Retries for scenarios that fail (reruns only the failed ones, via Cucumber's rerun
@@ -35,7 +31,16 @@ jobs:
     # bump both together. See docs/architecture.md "CI runners".
     container: mcr.microsoft.com/playwright/java:v1.52.0-noble
     env:
-      QA_BASEURL: ${{ inputs.baseUrl }}
+      # qa.baseUrl is NOT exposed as a workflow_dispatch input, on purpose: this job runs on the
+      # self-hosted `medium` pool with internal network access, and its rendered
+      # traces/screenshots/video are uploaded as workflow artifacts. An arbitrary free-text
+      # override would let anyone who can dispatch this workflow point the browser at an
+      # unrelated internal host (or a cloud metadata endpoint) and exfiltrate its content through
+      # those artifacts — this job must stay limited to the checked-in master-QA target. If a
+      # genuine need to target a different QA host arises, that needs an explicit, reviewed
+      # allowlist (not a free string) — there is no approved list of alternate QA hosts to
+      # validate against today, so this isn't invented here. See docs/architecture.md
+      # "CI runners".
       # Always headless here, not configurable: this container has no display server (confirmed
       # against Playwright's own Docker docs — no Xvfb/noVNC by default), so a headed launch
       # would just fail. Headed is a local-only debugging option (see README.md), not a CI one.

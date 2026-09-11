@@ -110,14 +110,19 @@ browser or the network — see `docs/checkout-testing.md` for the exact commands
   needed. The image tag's version must be bumped in lockstep with `playwrightVersion` in
   `build.gradle`; a mismatch risks the container's browser build drifting from the Playwright
   Java client driving it.
-- `qa-smoke.yml` exposes `baseUrl` as a `workflow_dispatch` input, passed through as
-  `QA_BASEURL` — `Config`'s existing precedence chain (env var over checked-in default) picks it
-  up with no code change. `headless` is deliberately **not** exposed here (always headless in
-  CI): the `mcr.microsoft.com/playwright/java` container has no display server (Playwright's own
-  Docker docs confirm no Xvfb/noVNC by default), so a headed launch would just fail — headed
-  stays a local-only debugging option (see `README.md`). Browser choice is likewise not exposed:
-  only Chromium is supported today (`BrowserResources.launchBrowser`), so a variable input would
-  just add a way to fail.
+- `qa-smoke.yml` does **not** expose `baseUrl`, `headless`, or browser choice as
+  `workflow_dispatch` inputs, despite `Config`'s precedence chain making all three trivially
+  overridable in principle. `baseUrl` was tried and reverted: this job runs on the self-hosted
+  `medium` pool with internal network access and uploads its rendered traces/screenshots/video as
+  workflow artifacts, so a free-text URL override would let anyone who can dispatch the workflow
+  point the browser at an unrelated internal host and exfiltrate its content through those
+  artifacts — there is no approved allowlist of alternate QA hosts to validate against instead,
+  so this stays fixed to the checked-in master-QA target rather than inventing one. `headless`
+  isn't exposed because the `mcr.microsoft.com/playwright/java` container has no display server
+  (Playwright's own Docker docs confirm no Xvfb/noVNC by default) — a headed launch would just
+  fail; headed stays a local-only debugging option (see `README.md`). Browser choice isn't
+  exposed because only Chromium is supported today (`BrowserResources.launchBrowser`), so a
+  variable input would just add a way to fail.
 - A future workflow that runs authorized sandbox or real-card purchases (see
   `docs/checkout-testing.md` → "Execution paths") needs its own runner-scope review before it is
   created — do not assume `medium`'s current access/secret scope is appropriate for that
@@ -126,8 +131,12 @@ browser or the network — see `docs/checkout-testing.md` for the exact commands
   (`build/cucumber-rerun/smoke.txt`) — never a blanket rerun of the whole suite, which would
   silently redo any already-passed scenario. The rerun file's URIs are read and passed back in
   directly (comma-joined) via `-Dcucumber.features=...`, forwarded into the `qaSmokeTest` task's
-  forked JVM via `systemProperties = System.properties`; the `@file` syntax is deliberately not
-  used — confirmed empirically that the JUnit Platform engine's `cucumber.features` parameter
+  forked JVM via `systemProperties(project.gradle.startParameter.systemPropertiesArgs)` — scoped
+  to just this invocation's own command line, not the broader `System.properties`, specifically
+  so a previous retry attempt's `-Dcucumber.features` value can't leak into the next one via a
+  reused Gradle Daemon (see the comment on `qaSmokeTest` in `build.gradle`). The `@file` syntax is
+  deliberately not used — confirmed empirically that the JUnit Platform engine's
+  `cucumber.features` parameter
   silently ignores it (selecting zero scenarios and reporting a false "success", unlike
   Cucumber's own CLI, which does support that syntax). How many retries to attempt is a
   `workflow_dispatch` choice input (`0`/`1`/`2`, default `0`), so retrying is opt-in per

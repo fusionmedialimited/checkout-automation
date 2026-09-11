@@ -21,10 +21,15 @@ public record SubscriptionRef(String subscriptionId, String userId, String planR
      * Adds {@code newStatus} to the set of cleanup operations recorded against this
      * subscription. Additive, not a replacement: cancellation and a later refund are separate
      * facts that must both stay visible — see {@code docs/payment-safety.md} "Cleanup is not one
-     * operation".
+     * operation". {@link CleanupStatus#NOT_ATTEMPTED} is a pure placeholder (nothing has
+     * happened yet), not a historical fact worth keeping once something actually has, so it's
+     * removed here rather than accumulated alongside a real status — unlike
+     * {@link CleanupStatus#CLEANUP_FAILED}, which does stay even after a later success, since a
+     * prior failed attempt is itself a fact worth keeping visible.
      */
     public SubscriptionRef withCleanupStatus(CleanupStatus newStatus) {
         Set<CleanupStatus> updated = new LinkedHashSet<>(cleanupStatuses);
+        updated.remove(CleanupStatus.NOT_ATTEMPTED);
         updated.add(newStatus);
         return new SubscriptionRef(subscriptionId, userId, planReference, runId, scenarioId, updated);
     }
