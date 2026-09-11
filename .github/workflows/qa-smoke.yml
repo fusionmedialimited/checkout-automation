@@ -42,14 +42,18 @@ jobs:
       # validate against today, so this isn't invented here. See docs/architecture.md
       # "CI runners".
       #
-      # Explicitly pinned here (duplicating config/default.properties' qa.baseUrl) rather than
-      # left to fall through to that checked-in default: Config checks environment variables
-      # before default.properties, so relying on the default alone means a QA_BASEURL the
-      # self-hosted `medium` runner happened to inherit (from its host process environment, a
-      # leftover from another job, etc.) would silently redirect this job. Setting it explicitly
-      # here overrides any such inherited value. Keep this in sync with default.properties if the
-      # master QA URL ever changes.
+      # Explicitly pinned here (duplicating config/default.properties) rather than left to fall
+      # through to those checked-in defaults: Config checks environment variables before
+      # default.properties, so relying on the defaults alone means a value the self-hosted
+      # `medium` runner happened to inherit (from its host process environment, a leftover from
+      # another job, etc.) could silently redirect the target (QA_BASEURL), switch to a headed
+      # launch this display-less container can't support (QA_HEADLESS), or select an unsupported
+      # browser (QA_BROWSER — Config.browser() would still fail closed for anything but Chromium,
+      # but there's no reason to depend on that rather than just pinning it). Keep all three in
+      # sync with default.properties if those checked-in values ever change.
       QA_BASEURL: https://master--www.ams-qa.finboxgcp.investing.com/pro/
+      QA_HEADLESS: 'true'
+      QA_BROWSER: chromium
       # Always headless here, not configurable: this container has no display server (confirmed
       # against Playwright's own Docker docs — no Xvfb/noVNC by default), so a headed launch
       # would just fail. Headed is a local-only debugging option (see README.md), not a CI one.

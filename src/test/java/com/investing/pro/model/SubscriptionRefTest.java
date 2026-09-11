@@ -65,4 +65,13 @@ class SubscriptionRefTest {
                 "a prior failed attempt is a fact worth keeping, unlike the NOT_ATTEMPTED placeholder");
         assertTrue(failedThenSucceeded.cleanupStatuses().contains(CleanupStatus.SUBSCRIPTION_CANCELLED));
     }
+
+    @Test
+    @DisplayName("withCleanupStatus rejects NOT_ATTEMPTED, which would reintroduce the placeholder alongside a real status")
+    void withCleanupStatus_rejectsNotAttempted() {
+        SubscriptionRef cancelled = newRef(CleanupStatus.NOT_ATTEMPTED)
+                .withCleanupStatus(CleanupStatus.SUBSCRIPTION_CANCELLED);
+
+        assertThrows(IllegalArgumentException.class, () -> cancelled.withCleanupStatus(CleanupStatus.NOT_ATTEMPTED));
+    }
 }

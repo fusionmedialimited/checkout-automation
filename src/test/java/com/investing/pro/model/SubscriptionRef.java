@@ -26,8 +26,17 @@ public record SubscriptionRef(String subscriptionId, String userId, String planR
      * removed here rather than accumulated alongside a real status — unlike
      * {@link CleanupStatus#CLEANUP_FAILED}, which does stay even after a later success, since a
      * prior failed attempt is itself a fact worth keeping visible.
+     *
+     * @throws IllegalArgumentException if {@code newStatus} is {@link CleanupStatus#NOT_ATTEMPTED}
+     *         — it's only ever a valid initial state (set via the constructor), never something
+     *         to record after the fact; recording it here would reintroduce the placeholder
+     *         alongside whatever real cleanup facts already exist.
      */
     public SubscriptionRef withCleanupStatus(CleanupStatus newStatus) {
+        if (newStatus == CleanupStatus.NOT_ATTEMPTED) {
+            throw new IllegalArgumentException(
+                    "NOT_ATTEMPTED is only a valid initial cleanupStatuses value, not something to record via withCleanupStatus");
+        }
         Set<CleanupStatus> updated = new LinkedHashSet<>(cleanupStatuses);
         updated.remove(CleanupStatus.NOT_ATTEMPTED);
         updated.add(newStatus);
