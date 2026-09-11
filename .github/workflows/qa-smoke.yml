@@ -41,6 +41,15 @@ jobs:
       # allowlist (not a free string) — there is no approved list of alternate QA hosts to
       # validate against today, so this isn't invented here. See docs/architecture.md
       # "CI runners".
+      #
+      # Explicitly pinned here (duplicating config/default.properties' qa.baseUrl) rather than
+      # left to fall through to that checked-in default: Config checks environment variables
+      # before default.properties, so relying on the default alone means a QA_BASEURL the
+      # self-hosted `medium` runner happened to inherit (from its host process environment, a
+      # leftover from another job, etc.) would silently redirect this job. Setting it explicitly
+      # here overrides any such inherited value. Keep this in sync with default.properties if the
+      # master QA URL ever changes.
+      QA_BASEURL: https://master--www.ams-qa.finboxgcp.investing.com/pro/
       # Always headless here, not configurable: this container has no display server (confirmed
       # against Playwright's own Docker docs — no Xvfb/noVNC by default), so a headed launch
       # would just fail. Headed is a local-only debugging option (see README.md), not a CI one.
@@ -120,7 +129,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-smoke-artifacts
+          # actions/upload-artifact@v4 artifacts are immutable per run: re-running this job (via
+          # GitHub's own "re-run" UI, which reuses the same run id) would try to upload under the
+          # same name again and fail because it already exists. run_attempt disambiguates each
+          # attempt so a re-run doesn't clobber (or fail to add to) the previous attempt's evidence.
+          name: qa-smoke-artifacts-${{ github.run_attempt }}
           path: |
             build/artifacts/**
             build/test-results/qaSmokeTest/**
