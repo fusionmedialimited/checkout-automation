@@ -64,12 +64,21 @@ public final class Config {
 
     public static int timeoutMs() {
         String value = get("qa.timeoutMs");
+        int parsed;
         try {
-            return Integer.parseInt(value);
+            parsed = Integer.parseInt(value);
         } catch (NumberFormatException e) {
             throw new ConfigValidationException(
                     "Invalid integer value for 'qa.timeoutMs': '" + value + "'.", e);
         }
+        // Playwright treats a zero timeout as "disabled" — a missing selector would then hang
+        // indefinitely instead of failing after a bounded interval, which could hang a CI job
+        // rather than just fail it. Reject non-positive values rather than passing them through.
+        if (parsed <= 0) {
+            throw new ConfigValidationException(
+                    "Invalid value for 'qa.timeoutMs': '" + value + "'; must be a positive integer.");
+        }
+        return parsed;
     }
 
     public static ArtifactPolicy artifactPolicy() {

@@ -157,6 +157,20 @@ class ConfigPrecedenceTest {
     }
 
     @Test
+    @DisplayName("timeoutMs() rejects zero, since Playwright treats a zero timeout as disabled rather than immediate")
+    void timeoutMs_rejectsZero() {
+        System.setProperty("qa.timeoutMs", "0");
+        assertThrows(ConfigValidationException.class, Config::timeoutMs);
+    }
+
+    @Test
+    @DisplayName("timeoutMs() rejects a negative value")
+    void timeoutMs_rejectsNegativeValue() {
+        System.setProperty("qa.timeoutMs", "-1");
+        assertThrows(ConfigValidationException.class, Config::timeoutMs);
+    }
+
+    @Test
     @DisplayName("paymentMode() has no checked-in default and fails closed (throws) when qa.paymentMode is unset")
     void paymentMode_hasNoDefault_andFailsClosed() {
         assertThrows(ConfigValidationException.class, Config::paymentMode);

@@ -125,6 +125,17 @@ tasks.register('qaSmokeTest', Test) {
     // `./gradlew qaSmokeTest` invocations, so the task itself must fail normally for that loop
     // (and the CI job) to see it.
     systemProperties(project.gradle.startParameter.systemPropertiesArgs)
+    // Set AFTER the forwarding above so it always wins, even if the invocation itself passed
+    // -Dcucumber.execution.parallel.enabled=true — verified empirically that a systemProperty()
+    // call placed after a systemProperties(map) merge overrides that key in the forked JVM
+    // regardless of what the map contained. junit-platform.properties only disables Jupiter's
+    // own parallel executor (junit.jupiter.execution.parallel.enabled); Cucumber's JUnit-Platform
+    // engine has its own separate parallel-execution keys, which nothing else in this project
+    // pins down, and BrowserResources is not thread-safe by design (see docs/architecture.md).
+    // This is deliberately not overridable via the command line the way qa.*/cucumber.features
+    // are: the sequential-execution guarantee is a project-wide invariant, not a per-invocation
+    // choice — changing it needs an actual build.gradle edit, not a CLI flag.
+    systemProperty('cucumber.execution.parallel.enabled', 'false')
 
     testLogging {
         events 'passed', 'failed', 'skipped', 'standard_out', 'standard_error'

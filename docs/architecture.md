@@ -34,9 +34,15 @@ There is no static mutable Playwright state anywhere in the framework: `BrowserR
 a new `Playwright`/`Browser`/`BrowserContext`/`Page` in `@Before` and closes all of them in
 `@After`, even if `@Before` partially failed (Cucumber still runs `@After` for a started
 scenario). Playwright objects are created and used on the single thread executing that
-scenario; parallel execution is disabled (`junit.jupiter.execution.parallel.enabled=false`
-in `junit-platform.properties`) and only Chromium is supported for now (see
-`BrowserResources.launchBrowser`).
+scenario; parallel execution is disabled and only Chromium is supported for now (see
+`BrowserResources.launchBrowser`). Disabling it takes two separate keys, not one: offline unit
+tests run on the Jupiter engine (`junit.jupiter.execution.parallel.enabled=false`), while
+`SmokeTestRunner` runs on the independent Cucumber JUnit-Platform engine
+(`cucumber.execution.parallel.enabled=false`) — both are pinned in `junit-platform.properties` as
+a baseline, and `qaSmokeTest` additionally pins the Cucumber key as a non-overridable
+`systemProperty` in `build.gradle`, since a system property would otherwise take precedence over
+that properties file and this is meant to be a project-wide invariant, not something a CLI flag
+can quietly turn back on.
 
 ## Configuration precedence
 
