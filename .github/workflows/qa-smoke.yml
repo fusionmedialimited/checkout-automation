@@ -4,12 +4,48 @@ name: QA Smoke (manual)
 # must never gain a scheduled trigger, and the scenario it runs must never create a user or
 # submit a payment (see docs/checkout-testing.md and docs/payment-safety.md).
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      baseUrl:
+        description: 'Override qa.baseUrl (leave blank to use config/default.properties)'
+        required: false
+        type: string
+      headless:
+        description: 'Run the browser headless'
+        required: false
+        type: boolean
+        default: true
+      retry:
+        description: >
+          Retries for scenarios that fail (reruns only the failed ones, via Cucumber's rerun
+          file). Safe here because this suite never creates a user or submits a payment — see
+          docs/payment-safety.md before reusing this for any suite that does.
+        required: false
+        type: choice
+        options: ['0', '1', '2']
+        default: '0'
 
 jobs:
   smoke:
     name: QA smoke against master QA
-    runs-on: ubuntu-latest
+    # Master QA is not publicly reachable — a GitHub-hosted `ubuntu-latest` runner cannot reach
+    # it. `medium` is the self-hosted runner pool shared with the reference project
+    # fusionmedialimited/Cucumber-Playwright-POC; this project's use of that pool was confirmed
+    # authorized by the project owner (2026-09-11). This is a CI-infrastructure detail only, not
+    # a runtime dependency on that repo. See docs/architecture.md "CI runners".
+    runs-on: medium
+    # Official Playwright Java image: ships Chromium and its OS-level dependencies preinstalled
+    # for the exact Playwright version this project depends on, so no separate browser-install
+    # step is needed. The tag's version MUST match `playwright.version` in pom.xml exactly —
+    # bump both together. See docs/architecture.md "CI runners".
+    container: mcr.microsoft.com/playwright/java:v1.52.0-noble
+    env:
+      QA_BASEURL: ${{ inputs.baseUrl }}
+      QA_HEADLESS: ${{ inputs.headless }}
+      # Unset today — no Slack webhook secret has been created for this project. The notify step
+      # below is a no-op until one is added in repo settings (see docs/architecture.md
+      # "Reporting"); adding that secret is a deliberate, separate decision, not made here.
+      SLACK_WEBHOOK_URL_QA: ${{ secrets.SLACK_WEBHOOK_URL_QA }}
     steps:
       - uses: actions/checkout@v4
 
@@ -19,18 +55,62 @@ jobs:
           java-version: '21'
           cache: maven
 
-      - name: Install Chromium for Playwright
-        run: >
-          ./mvnw -q -B org.codehaus.mojo:exec-maven-plugin:3.5.0:java
-          -Dexec.mainClass=com.microsoft.playwright.CLI
-          -Dexec.classpathScope=test
-          -Dexec.args="install --with-deps chromium"
+      # Reruns only the scenarios that failed (via SmokeTestRunner's `rerun:` plugin output),
+      # never the whole suite — a blanket suite rerun would silently redo any already-passed
+      # scenario, which is unsafe the moment this framework has a payment-submitting one (see
+      # docs/payment-safety.md "Ambiguous outcomes and retries"). Every attempt's raw
+      # surefire/cucumber-report/artifacts are snapshotted under target/attempts/attempt-N so a
+      # retried pass never erases evidence that an earlier attempt failed; target/allure-results
+      # additionally accumulates every attempt's results because it is never cleaned between
+      # attempts (no `mvn clean` is run here), so Allure can show the full retry history.
+      - name: Run QA smoke suite (retries only rerun previously-failed scenarios)
+        run: |
+          # GitHub Actions' default bash shell runs with `-e` (and pipefail): disable that here,
+          # since this step's whole point is to keep going after `./mvnw` fails so it can decide
+          # whether to retry — with `-e` left on, the first failure would kill the step before
+          # STATUS is even captured.
+          set +e
+          set -u
+          RETRIES="${{ inputs.retry }}"
+          RERUN_FILE=target/cucumber-rerun/smoke.txt
+          ATTEMPT=1
 
-      - name: Run QA smoke suite
-        run: ./mvnw -B test -Dtest=SmokeTestRunner
+          snapshot_attempt() {
+            local dir="target/attempts/attempt-${ATTEMPT}"
+            mkdir -p "$dir"
+            cp -r target/surefire-reports "$dir/" 2>/dev/null || true
+            cp -r target/cucumber-report "$dir/" 2>/dev/null || true
+            cp -r target/artifacts "$dir/" 2>/dev/null || true
+          }
 
-      # Uploaded regardless of pass/fail, but the smoke scenario itself never retries on
-      # failure — see docs/payment-safety.md on why this framework never auto-retries.
+          ./mvnw -B test -Dtest=SmokeTestRunner
+          STATUS=$?
+          snapshot_attempt
+
+          while [ "$STATUS" -ne 0 ] && [ "$ATTEMPT" -le "$RETRIES" ] && [ -s "$RERUN_FILE" ]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "::warning::QA smoke attempt $((ATTEMPT - 1)) failed — retry $((ATTEMPT - 1))/$RETRIES rerunning only the scenarios listed in $RERUN_FILE"
+            ./mvnw -B test -Dtest=SmokeTestRunner "-Dcucumber.features=@$RERUN_FILE"
+            STATUS=$?
+            snapshot_attempt
+          done
+
+          if [ "$STATUS" -eq 0 ] && [ "$ATTEMPT" -gt 1 ]; then
+            echo "::warning::QA smoke only passed after $ATTEMPT attempt(s) — treat as flaky, not clean; see target/attempts/ for each attempt's evidence"
+          fi
+
+          exit $STATUS
+
+      # Local/CI report only, not bound to any lifecycle phase — never runs as part of plain
+      # `mvn test`. Reads target/allure-results (accumulated across every retry attempt above).
+      - name: Generate Allure report
+        if: always()
+        run: ./mvnw -q -B allure:report
+
+      # Uploaded regardless of pass/fail. Includes every retry attempt's raw evidence
+      # (target/attempts) plus the final attempt's own reports, the accumulated Allure results,
+      # and the generated Allure HTML report — none of this is pushed to any shared/portal
+      # storage, it is only ever attached to this workflow run.
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -40,4 +120,19 @@ jobs:
             target/artifacts/**
             target/cucumber-report/**
             target/surefire-reports/**
+            target/attempts/**
+            target/allure-results/**
+            target/site/allure-maven-plugin/**
           if-no-files-found: ignore
+
+      # No-op today: SLACK_WEBHOOK_URL_QA has no secret configured for this project yet, so this
+      # step is skipped. Wiring an actual webhook is a separate, deliberate decision (needs the
+      # secret added in repo settings) — this only keeps the extension point ready. Failure-only,
+      # and deliberately minimal (status + run link, no screenshots/scenario detail) per
+      # docs/payment-safety.md's sensitive-artifact-handling rules.
+      - name: Notify Slack on failure
+        if: failure() && env.SLACK_WEBHOOK_URL_QA != ''
+        run: |
+          curl -sf -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"QA smoke failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$SLACK_WEBHOOK_URL_QA"

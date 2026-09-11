@@ -65,6 +65,14 @@ processor behind it is wired to sandbox or live credentials.
   it's discarded to avoid piling up disk usage on green runs.
 - Screenshots go to `target/artifacts/screenshots/<runId>_<scenarioId>.png` under the same
   policy.
+- Video recording follows the same policy but has the opposite lifecycle to tracing/screenshots:
+  Playwright requires the recording directory to be set at `browser.newContext()` time, before
+  the scenario's outcome is known, and only finishes writing the file once that context has
+  *closed* — so `BrowserResources` records to a scratch temp directory for the whole scenario,
+  and `finishVideo(save, path)` (called from `Hooks` right after `closeContext()`, but before
+  `close()` tears down the browser/driver connection the save/discard call still needs) either
+  copies it to `target/artifacts/videos/<runId>_<scenarioId>.webm` or deletes it, then always
+  removes the scratch directory.
 - `runId` reuses `GITHUB_RUN_ID` in CI, else a local timestamp; `scenarioId` is a slug of the
   scenario name plus a random suffix — both exist specifically so artifact and log file names
   never collide across scenarios or runs.
@@ -79,6 +87,66 @@ under the `runners` package and are named so they never match that pattern (e.g.
 `SmokeTestRunner`, not `SmokeTestRunnerTest`); they only run when named explicitly with
 `-Dtest=<RunnerClassName>`. This is what keeps "offline" (`mvn test`) from ever touching a
 browser or the network — see `docs/checkout-testing.md` for the exact commands per suite.
+
+## CI runners
+
+- `ci.yml` (compile + offline `*Test.java` suite, on push/PR) runs on `ubuntu-latest`: it never
+  opens a browser or reaches any network target, so a public runner is sufficient and no runner
+  authorization is needed.
+- `qa-smoke.yml` (manual, loads master QA) runs on `medium`, a self-hosted runner pool shared
+  with the reference project `fusionmedialimited/Cucumber-Playwright-POC`. This is required
+  because master QA and other InvestingPro QA environments are not publicly reachable — a
+  GitHub-hosted runner has no route to them, the same constraint that project documents for its
+  own QA-targeting workflows. Both this project's use of that specific pool and the reachability
+  constraint itself were confirmed by the project owner (2026-09-11). Using the pool is a
+  CI-infrastructure choice only — it creates no runtime dependency on the reference project's
+  code, and this project's workflow still runs its own Maven/Java toolchain independently.
+- `qa-smoke.yml`'s job runs inside the official `mcr.microsoft.com/playwright/java` container
+  image (the same pattern the reference project uses for its browser-touching jobs), which ships
+  Chromium and its OS dependencies preinstalled — no separate `playwright install` step is
+  needed. The image tag's version must be bumped in lockstep with `playwright.version` in
+  `pom.xml`; a mismatch risks the container's browser build drifting from the Playwright Java
+  client driving it.
+- `qa-smoke.yml` exposes `baseUrl` and `headless` as `workflow_dispatch` inputs, passed through
+  as `QA_BASEURL`/`QA_HEADLESS` environment variables — `Config`'s existing precedence chain
+  (env var over checked-in default) picks them up with no code change. Browser choice is
+  intentionally not exposed as an input: only Chromium is supported today
+  (`BrowserResources.launchBrowser`), so a variable input would just add a way to fail.
+- A future workflow that runs authorized sandbox or real-card purchases (see
+  `docs/checkout-testing.md` → "Execution paths") needs its own runner-scope review before it is
+  created — do not assume `medium`'s current access/secret scope is appropriate for that
+  higher-stakes case just because it was confirmed appropriate for the read-only smoke scenario.
+- `qa-smoke.yml` retries only previously-failed scenarios, via Cucumber's `rerun:` plugin output
+  (`target/cucumber-rerun/smoke.txt`) — never a blanket rerun of the whole suite, which would
+  silently redo any already-passed scenario. How many retries to attempt is a `workflow_dispatch`
+  choice input (`0`/`1`/`2`, default `0`), so retrying is opt-in per invocation, not automatic.
+  Every attempt's surefire/cucumber-report/artifacts are snapshotted under
+  `target/attempts/attempt-N` before the next attempt can overwrite them, and a run that only
+  passed after retrying is flagged in the workflow log as flaky rather than reported as clean —
+  see `docs/payment-safety.md` "Ambiguous outcomes and retries" for why this mechanism must never
+  be reused for a suite that includes a payment-submitting scenario.
+- `qa-smoke.yml` has a Slack-on-failure step gated on a `SLACK_WEBHOOK_URL_QA` secret that does
+  not exist yet — the step is a no-op until that secret is deliberately added in repo settings.
+  This only keeps the extension point ready; it adds no external dependency or egress today.
+
+## Reporting
+
+- Cucumber's own `pretty`/`html`/`json` plugins (configured on `SmokeTestRunner`) and Surefire's
+  XML/text reports remain the baseline — always produced, no extra dependency required.
+- Allure (`allure-cucumber7-jvm`, added to `SmokeTestRunner`'s plugin list) additionally writes
+  step- and attachment-level results to `target/allure-results`. The `allure-maven` build plugin
+  (`mvn allure:report`, not bound to any lifecycle phase, so it never runs as part of plain
+  `mvn test`) turns those into a static HTML report under `target/site/allure-maven-plugin`.
+  `qa-smoke.yml` generates and uploads both as workflow artifacts.
+- Deliberately **not** wired: pushing results to the shared, self-hosted Allure Portal that
+  `Cucumber-Playwright-POC` uses. That portal's own docs list authentication as "TBD" — there is
+  no auth on its upload/delete endpoints — so nothing from this project, even sandbox-only data,
+  should go there until that's resolved. If it is resolved later, pushing would be an additive
+  CI step, not a reason to remove the artifact-only path above.
+- Scenario screenshots are attached to the running scenario as actual image bytes
+  (`Hooks.captureArtifactsIfNeeded`), not just a path reference, so the image renders inline in
+  both the Cucumber HTML report and the Allure report — both formatters read the same Cucumber
+  attachment event, so this needed no formatter-specific code.
 
 ## Reference project
 
@@ -139,9 +207,12 @@ instead of reference-specific ones — see git history for that phase's reasonin
   convenience methods start getting duplicated across many page objects.
 - **Heavier reporting pipeline**: Allure 3 (self-hosted Allure Portal, Slack notification action,
   video recording on failure) vs. this project's Cucumber HTML/JSON + JUnit XML + Playwright
-  tracing. Not adopted here — this project has no Allure Portal URL/credentials, and the original
-  task didn't require it — but worth knowing it's the established pattern elsewhere in the org if
-  this project's reporting needs grow.
+  tracing. This project has since adopted Allure 2 (`allure-cucumber7-jvm`) for local/CI report
+  generation only — see "Reporting" above — but deliberately does not push to the shared Allure
+  Portal, since that portal has no upload authentication. It has also since added video recording
+  under the same `qa.artifactPolicy` used for tracing/screenshots (see "Browser lifecycle and
+  diagnostics" above) — on top of, not instead of, the Playwright tracing (screenshots + DOM
+  snapshots + timeline) the reference project's screenshot/video-only capture doesn't have.
 
 ## Deliberately unimplemented (this phase)
 

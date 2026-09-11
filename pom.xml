@@ -23,9 +23,11 @@
         <picocontainer.version>2.15.2</picocontainer.version>
         <slf4j.version>2.0.17</slf4j.version>
         <logback.version>1.5.18</logback.version>
+        <allure.version>2.29.1</allure.version>
 
         <maven-compiler-plugin.version>3.14.1</maven-compiler-plugin.version>
         <maven-surefire-plugin.version>3.5.5</maven-surefire-plugin.version>
+        <allure-maven-plugin.version>2.15.2</allure-maven-plugin.version>
     </properties>
 
     <dependencyManagement>
@@ -94,6 +96,17 @@
             <version>${logback.version}</version>
             <scope>runtime</scope>
         </dependency>
+
+        <!--
+            Reporting only: writes to target/allure-results locally/in CI. Nothing here pushes
+            results anywhere — see docs/architecture.md "Reporting" for why a portal push isn't
+            wired up (the shared Allure Portal has no upload authentication).
+        -->
+        <dependency>
+            <groupId>io.qameta.allure</groupId>
+            <artifactId>allure-cucumber7-jvm</artifactId>
+            <version>${allure.version}</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -122,6 +135,20 @@
                     <excludes>
                         <exclude>**/runners/**</exclude>
                     </excludes>
+                </configuration>
+            </plugin>
+            <!--
+                Local/CI report generation only (`mvn allure:report`), reading
+                target/allure-results and writing target/site/allure-maven-plugin. Not bound to
+                any lifecycle phase, so it never runs as part of plain `mvn test`. No portal
+                push — see the allure-cucumber7-jvm dependency comment above.
+            -->
+            <plugin>
+                <groupId>io.qameta.allure</groupId>
+                <artifactId>allure-maven</artifactId>
+                <version>${allure-maven-plugin.version}</version>
+                <configuration>
+                    <reportVersion>${allure.version}</reportVersion>
                 </configuration>
             </plugin>
         </plugins>

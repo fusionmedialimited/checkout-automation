@@ -18,11 +18,20 @@
 - Configuration precedence and validation (`Config`)
 - Payment/user-creation safety gates (`PaymentSafetyGate`) — enforcement only; nothing calls
   them yet because nothing creates users or purchases yet
-- Scenario-scoped browser lifecycle and artifact capture (`BrowserResources`, `Hooks`)
+- Scenario-scoped browser lifecycle and artifact capture — tracing, screenshots, and video —
+  (`BrowserResources`, `Hooks`), all governed by the same `qa.artifactPolicy`
 - One smoke scenario: `features/smoke/landing_page.feature`, tagged `@smoke @qa`, verified
   against a live browser session against master QA on 2026-09-09 (see `LandingPage` Javadoc).
   It only asserts the page loads — no user creation, no purchase.
 - Offline tests for configuration precedence and safety-gate behavior
+- Allure reporting for `SmokeTestRunner` (results + generated HTML report, uploaded as a CI
+  artifact only — not pushed to any shared portal) alongside the existing Cucumber/Surefire
+  reports; see `docs/architecture.md` "Reporting"
+- Opt-in, scenario-scoped retry for `SmokeTestRunner` only (`qa-smoke.yml`'s `retry` input); see
+  `docs/payment-safety.md` "Ambiguous outcomes and retries" for why this must not be reused for a
+  suite that submits payments without re-reading that section first
+- A Slack-on-failure extension point in `qa-smoke.yml`, currently a no-op because no webhook
+  secret has been configured for this project yet
 
 ## Explicitly not implemented — required contracts
 
@@ -111,6 +120,12 @@ being invented scenario-by-scenario.
 An unsupported path (sandbox checkout, real-payment) has no runner class at all right now, so
 attempting `-Dtest=CheckoutSandboxRunner` (or similar) fails with "no tests were executed"
 rather than silently reporting a false pass.
+
+None of InvestingPro's QA environments are publicly reachable, so any path that touches one in
+CI needs a runner with internal network access — see `docs/architecture.md` → "CI runners" for
+which runner each workflow uses and why. A future sandbox-checkout or real-payment runner will
+need the same kind of runner-access review before its workflow is created, independent of
+whether it reuses the same runner pool.
 
 ## Definition of done (this phase)
 

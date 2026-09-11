@@ -10,6 +10,8 @@ import io.cucumber.java.Scenario;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
@@ -41,29 +43,42 @@ public final class Hooks {
 
     @After
     public void tearDown(Scenario scenario) {
+        ArtifactPolicy policy = Config.artifactPolicy();
+        boolean shouldCapture = policy == ArtifactPolicy.ALWAYS
+                || (policy == ArtifactPolicy.ON_FAILURE && scenario.isFailed());
+        String artifactName = testRunContext.runId() + "_" + testRunContext.scenarioId();
+
         try {
-            captureArtifactsIfNeeded(scenario);
+            captureTracingAndScreenshot(scenario, shouldCapture, artifactName);
         } catch (RuntimeException e) {
             // Artifact capture must never mask the scenario's own pass/fail result. Pass the
             // exception itself (not just its message) so the stack trace survives in the logs.
             LOG.warn("Artifact capture failed for scenario '{}'", scenario.getName(), e);
         } finally {
             try {
-                browserResources.close();
+                // Only the context closes here — video still needs a live browser/driver
+                // connection to save/delete, which browserResources.close() below tears down.
+                browserResources.closeContext();
             } catch (RuntimeException e) {
-                // Same reasoning as above: cleanup failing must never override the scenario's
-                // own result.
-                LOG.warn("Browser cleanup failed for scenario '{}'", scenario.getName(), e);
+                LOG.warn("Browser context cleanup failed for scenario '{}'", scenario.getName(), e);
+            }
+            try {
+                captureVideoIfNeeded(scenario, shouldCapture, artifactName);
+            } catch (RuntimeException e) {
+                LOG.warn("Video capture failed for scenario '{}'", scenario.getName(), e);
+            } finally {
+                try {
+                    browserResources.close();
+                } catch (RuntimeException e) {
+                    // Same reasoning as above: cleanup failing must never override the
+                    // scenario's own result.
+                    LOG.warn("Browser cleanup failed for scenario '{}'", scenario.getName(), e);
+                }
             }
         }
     }
 
-    private void captureArtifactsIfNeeded(Scenario scenario) {
-        ArtifactPolicy policy = Config.artifactPolicy();
-        boolean shouldCapture = policy == ArtifactPolicy.ALWAYS
-                || (policy == ArtifactPolicy.ON_FAILURE && scenario.isFailed());
-
-        String artifactName = testRunContext.runId() + "_" + testRunContext.scenarioId();
+    private void captureTracingAndScreenshot(Scenario scenario, boolean shouldCapture, String artifactName) {
         browserResources.finishTracing(shouldCapture, ARTIFACT_ROOT.resolve("traces").resolve(artifactName + ".zip"));
 
         // browserResources.page() is null if @Before failed before creating a page (e.g. the
@@ -71,7 +86,27 @@ public final class Hooks {
         if (shouldCapture && browserResources.page() != null) {
             Path screenshotPath = ARTIFACT_ROOT.resolve("screenshots").resolve(artifactName + ".png");
             browserResources.captureScreenshot(screenshotPath);
-            scenario.attach("Artifacts saved under " + screenshotPath.getParent(), "text/plain", artifactName);
+            // Attaching the actual bytes (not just a path note) is what makes the screenshot show
+            // up inline in both the Cucumber HTML report and the Allure report — both formatters
+            // listen to the same Cucumber attachment event.
+            try {
+                scenario.attach(Files.readAllBytes(screenshotPath), "image/png", artifactName);
+            } catch (IOException e) {
+                LOG.warn("Failed to attach screenshot for scenario '{}'", scenario.getName(), e);
+            }
+        }
+    }
+
+    private void captureVideoIfNeeded(Scenario scenario, boolean shouldCapture, String artifactName) {
+        Path videoPath = ARTIFACT_ROOT.resolve("videos").resolve(artifactName + ".webm");
+        browserResources.finishVideo(shouldCapture, videoPath);
+
+        if (shouldCapture) {
+            try {
+                scenario.attach(Files.readAllBytes(videoPath), "video/webm", artifactName);
+            } catch (IOException e) {
+                LOG.warn("Failed to attach video for scenario '{}'", scenario.getName(), e);
+            }
         }
     }
 }
