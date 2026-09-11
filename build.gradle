@@ -1,0 +1,144 @@
+plugins {
+    id 'java'
+}
+
+group = 'com.investing.pro'
+version = '1.0.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+// sourceCompatibility/targetCompatibility above only set the bytecode/language level — unlike
+// the deleted pom.xml's `maven.compiler.release=21`, they do NOT restrict compilation to the
+// JDK 21 API surface. Without this, compiling with a newer JDK (e.g. 22, as this sandbox has)
+// would let a JDK-22-only API compile cleanly here and only fail later on a real JDK 21 runtime
+// (CI's actions/setup-java pins java-version 21).
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+}
+
+ext {
+    junitBomVersion = '5.12.2'
+    playwrightVersion = '1.52.0'
+    cucumberVersion = '7.22.1'
+    picocontainerVersion = '2.15.2'
+    slf4jVersion = '2.0.17'
+    logbackVersion = '1.5.18'
+    allureAdapterVersion = '2.29.1'
+}
+
+dependencies {
+    testImplementation platform("org.junit:junit-bom:${junitBomVersion}")
+
+    testImplementation "com.microsoft.playwright:playwright:${playwrightVersion}"
+
+    testImplementation "io.cucumber:cucumber-java:${cucumberVersion}"
+    testImplementation "io.cucumber:cucumber-picocontainer:${cucumberVersion}"
+    testImplementation "io.cucumber:cucumber-junit-platform-engine:${cucumberVersion}"
+
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'org.junit.platform:junit-platform-suite'
+
+    testImplementation "org.picocontainer:picocontainer:${picocontainerVersion}"
+
+    testImplementation "org.slf4j:slf4j-api:${slf4jVersion}"
+    testRuntimeOnly "ch.qos.logback:logback-classic:${logbackVersion}"
+
+    // Reporting only: registered as a Cucumber plugin on SmokeTestRunner, writes raw results to
+    // build/allure-results. No io.qameta.allure Gradle plugin, and no allure-junit5: both are
+    // deliberately avoided — see docs/architecture.md "Reporting" for why (a JUnit5 adapter here
+    // risks double-reporting SmokeTestRunner's own JUnit-Platform-Suite engine node, and the
+    // plugin's own HTML report-generation task pulls in an Allure 3 CLI via Node that failed to
+    // run in this environment; raw results are all that's actually needed, since the eventual
+    // plan is to push them to the shared Allure Portal, which renders the report server-side).
+    testImplementation "io.qameta.allure:allure-cucumber7-jvm:${allureAdapterVersion}"
+}
+
+// `./gradlew test` (no other args) must stay offline: it only picks up plain Jupiter `*Test`
+// classes. `include`/`exclude` here match Cucumber suite runners out by name pattern alone (they
+// deliberately aren't named `*Test`, e.g. `SmokeTestRunner`) — the explicit exclude is a
+// belt-and-suspenders guard in case a future class under `runners` were ever misnamed. This is
+// what keeps `test` from ever touching a browser or the network — see docs/checkout-testing.md
+// for the exact command per suite.
+test {
+    useJUnitPlatform()
+    include '**/*Test.class'
+    exclude '**/runners/**'
+}
+
+// Local dev convenience only — CI's qa-smoke.yml doesn't need this, it runs qaSmokeTest inside
+// the official mcr.microsoft.com/playwright/java container image, which ships Chromium already.
+tasks.register('installChromium', JavaExec) {
+    description = "Installs the Chromium build this project's Playwright dependency expects (local dev only)."
+    group = 'setup'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.microsoft.playwright.CLI'
+    args 'install', '--with-deps', 'chromium'
+}
+
+// Runs only the QA smoke suite (tagged @smoke @qa). A dedicated task, not a filtered invocation
+// of `test`, because Gradle's file-pattern include/exclude and its name-based test filter are
+// independently enforced (both must match) — unlike Maven Surefire, an explicit `--tests` filter
+// cannot override a task-level `exclude`. Each future Cucumber suite runner should get its own
+// task like this one, named for what it runs.
+tasks.register('qaSmokeTest', Test) {
+    description = 'Runs SmokeTestRunner (tagged @smoke @qa) against the configured qa.baseUrl.'
+    group = 'verification'
+
+    useJUnitPlatform {
+        includeEngines 'junit-platform-suite'
+    }
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    // Include pattern as a defense-in-depth backstop alongside the name filter below (matching
+    // the same "both must match" independence noted above) — a loose or mistyped
+    // includeTestsMatching value alone couldn't pick up an unintended class.
+    include '**/runners/SmokeTestRunner.class'
+    filter {
+        includeTestsMatching 'SmokeTestRunner'
+    }
+
+    // Forwards every `-Dqa.xxx=...` (and e.g. `-Dcucumber.features=...` for retries) given on
+    // this specific `./gradlew` invocation's command line into this task's own forked JVM —
+    // Gradle does not do this by default the way Maven Surefire forwards system properties into
+    // its forked JVM, and Config's whole system-property layer depends on it.
+    // `startParameter.systemPropertiesArgs` (not the broader `System.properties`) is used
+    // deliberately: this task runs repeatedly within the same job as CI's retry loop invokes
+    // `./gradlew qaSmokeTest` again for each attempt, and — since Gradle may reuse a persistent
+    // Daemon process across those invocations — forwarding the live, mutable `System.properties`
+    // risks leaking a stale property (e.g. a previous attempt's `-Dcucumber.features`) into a
+    // later invocation that didn't pass it. `systemPropertiesArgs` is scoped to exactly what was
+    // passed on this invocation's command line, matching the reference project's own narrower
+    // choice for its retry tasks specifically (its main `test` task uses the broader
+    // `System.properties`, since it never repeats within one job the way this task does).
+    // Deliberately NOT `ignoreFailures = true`: this task's exit code must accurately reflect
+    // pass/fail, since CI's own retry loop (qa-smoke.yml) decides whether to retry based on it —
+    // unlike the reference project's Gradle-native finalizedBy retry chaining (which sets
+    // ignoreFailures=true and determines final success/failure from parsed Allure results
+    // instead), this project retries via a plain shell loop around repeated
+    // `./gradlew qaSmokeTest` invocations, so the task itself must fail normally for that loop
+    // (and the CI job) to see it.
+    systemProperties(project.gradle.startParameter.systemPropertiesArgs)
+    // Set AFTER the forwarding above so it always wins, even if the invocation itself passed
+    // -Dcucumber.execution.parallel.enabled=true — verified empirically that a systemProperty()
+    // call placed after a systemProperties(map) merge overrides that key in the forked JVM
+    // regardless of what the map contained. junit-platform.properties only disables Jupiter's
+    // own parallel executor (junit.jupiter.execution.parallel.enabled); Cucumber's JUnit-Platform
+    // engine has its own separate parallel-execution keys, which nothing else in this project
+    // pins down, and BrowserResources is not thread-safe by design (see docs/architecture.md).
+    // This is deliberately not overridable via the command line the way qa.*/cucumber.features
+    // are: the sequential-execution guarantee is a project-wide invariant, not a per-invocation
+    // choice — changing it needs an actual build.gradle edit, not a CLI flag.
+    systemProperty('cucumber.execution.parallel.enabled', 'false')
+
+    testLogging {
+        events 'passed', 'failed', 'skipped', 'standard_out', 'standard_error'
+        exceptionFormat 'full'
+    }
+}

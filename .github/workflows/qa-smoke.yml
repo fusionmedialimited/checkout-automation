@@ -1,0 +1,171 @@
+name: QA Smoke (manual)
+
+# Manual only: no push/PR/schedule trigger. This workflow loads the master QA landing page — it
+# must never gain a scheduled trigger, and the scenario it runs must never create a user or
+# submit a payment (see docs/checkout-testing.md and docs/payment-safety.md).
+on:
+  workflow_dispatch:
+    inputs:
+      retry:
+        description: >
+          Retries for scenarios that fail (reruns only the failed ones, via Cucumber's rerun
+          file). Safe here because this suite never creates a user or submits a payment — see
+          docs/payment-safety.md before reusing this for any suite that does.
+        required: false
+        type: choice
+        options: ['0', '1', '2']
+        default: '0'
+
+jobs:
+  smoke:
+    name: QA smoke against master QA
+    # Master QA is not publicly reachable — a GitHub-hosted `ubuntu-latest` runner cannot reach
+    # it. `medium` is the self-hosted runner pool shared with the reference project
+    # fusionmedialimited/Cucumber-Playwright-POC; this project's use of that pool was confirmed
+    # authorized by the project owner (2026-09-11). This is a CI-infrastructure detail only, not
+    # a runtime dependency on that repo. See docs/architecture.md "CI runners".
+    runs-on: medium
+    # Official Playwright Java image: ships Chromium and its OS-level dependencies preinstalled
+    # for the exact Playwright version this project depends on, so no separate browser-install
+    # step is needed. The tag's version MUST match `playwrightVersion` in build.gradle exactly —
+    # bump both together. See docs/architecture.md "CI runners".
+    container: mcr.microsoft.com/playwright/java:v1.52.0-noble
+    env:
+      # Every qa.* key that has a checked-in default in config/default.properties is pinned here
+      # explicitly, rather than left to fall through to those defaults: Config checks environment
+      # variables before default.properties, so relying on the defaults alone means a value the
+      # shared, persistent self-hosted `medium` runner happened to inherit (from its host process
+      # environment, a leftover from another job, etc.) could silently change this job's behavior
+      # despite what its own comments/design promise — e.g. redirecting the target (QA_BASEURL,
+      # also not exposed as a workflow_dispatch input: this job has internal network access and
+      # uploads its rendered output as artifacts, so a free-text override would be an
+      # exfiltration vector — see docs/architecture.md "CI runners" for why there's no allowlist
+      # to validate against instead), switching to a headed launch this display-less container
+      # can't support (QA_HEADLESS — confirmed against Playwright's own Docker docs: no
+      # Xvfb/noVNC by default; headed stays a local-only option, see README.md), selecting an
+      # unsupported browser (QA_BROWSER — Config.browser() would still fail closed for anything
+      # but Chromium, but there's no reason to depend on that), suppressing the very diagnostics
+      # this job exists to upload (QA_ARTIFACTPOLICY=never), or breaking the smoke run's timing
+      # (QA_TIMEOUTMS too short → false failures, too long/absurd → hangs). The three
+      # payment-safety flags are pinned to their safe-default `false` too, even though nothing in
+      # this suite currently calls PaymentSafetyGate, as the same explicit-over-implicit
+      # principle this project applies everywhere else (see docs/payment-safety.md). Keep all of
+      # these in sync with default.properties if those checked-in values ever change.
+      QA_BASEURL: https://master--www.ams-qa.finboxgcp.investing.com/pro/
+      QA_HEADLESS: 'true'
+      QA_BROWSER: chromium
+      QA_TIMEOUTMS: '30000'
+      QA_ARTIFACTPOLICY: on-failure
+      QA_ALLOWUSERCREATION: 'false'
+      QA_ALLOWSANDBOXPURCHASE: 'false'
+      QA_ALLOWREALCARDPURCHASE: 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Reruns only the scenarios that failed (via SmokeTestRunner's `rerun:` plugin output),
+      # never the whole suite — a blanket suite rerun would silently redo any already-passed
+      # scenario, which is unsafe the moment this framework has a payment-submitting one (see
+      # docs/payment-safety.md "Ambiguous outcomes and retries"). The rerun file's URIs are
+      # passed back in directly, comma-joined, via -Dcucumber.features — NOT the `@file` syntax,
+      # which is a Cucumber-CLI-only convention silently ignored by the JUnit Platform engine
+      # (confirmed empirically: it selects zero scenarios and reports a false "success", which
+      # would have made a persistently-failing scenario look retried-and-fixed when it was never
+      # re-run at all). Every attempt's raw test-results/artifacts are snapshotted under
+      # build/attempts/attempt-N so a retried pass never erases evidence that an earlier attempt
+      # failed; build/allure-results additionally accumulates every attempt's results because it
+      # is never cleaned between attempts (no `clean` task runs here), so Allure can show the
+      # full retry history.
+      - name: Run QA smoke suite (retries only rerun previously-failed scenarios)
+        run: |
+          # GitHub Actions' default bash shell runs with `-e` (and pipefail): disable that here,
+          # since this step's whole point is to keep going after `./gradlew` fails so it can
+          # decide whether to retry — with `-e` left on, the first failure would kill the step
+          # before STATUS is even captured.
+          set +e
+          set -u
+          RETRIES="${{ inputs.retry }}"
+          RERUN_FILE=build/cucumber-rerun/smoke.txt
+          ATTEMPT=1
+
+          snapshot_attempt() {
+            local dir="build/attempts/attempt-${ATTEMPT}"
+            mkdir -p "$dir"
+            cp -r build/test-results/qaSmokeTest "$dir/" 2>/dev/null || true
+            cp -r build/artifacts "$dir/" 2>/dev/null || true
+          }
+
+          ./gradlew qaSmokeTest
+          STATUS=$?
+          snapshot_attempt
+
+          while [ "$STATUS" -ne 0 ] && [ "$ATTEMPT" -le "$RETRIES" ] && [ -s "$RERUN_FILE" ]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            RETRY_URIS=$(tr '\n' ',' < "$RERUN_FILE" | sed 's/,$//')
+            echo "::warning::QA smoke attempt $((ATTEMPT - 1)) failed — retry $((ATTEMPT - 1))/$RETRIES rerunning: $RETRY_URIS"
+            ./gradlew qaSmokeTest "-Dcucumber.features=$RETRY_URIS"
+            STATUS=$?
+            snapshot_attempt
+          done
+
+          if [ "$STATUS" -eq 0 ] && [ "$ATTEMPT" -gt 1 ]; then
+            echo "::warning::QA smoke only passed after $ATTEMPT attempt(s) — treat as flaky, not clean; see build/attempts/ for each attempt's evidence"
+          fi
+
+          exit $STATUS
+
+      # Uploaded regardless of pass/fail. Includes every retry attempt's raw evidence
+      # (build/attempts) plus the final attempt's own reports and the accumulated Allure results
+      # — none of this is pushed to any shared/portal storage, it is only ever attached to this
+      # workflow run. No generated Allure HTML report: the plugin's report-generation task pulls
+      # in an Allure 3 CLI via Node that failed to run reliably (see docs/architecture.md
+      # "Reporting") — raw results are enough for now, and are what would be pushed to the
+      # shared Allure Portal server-side-rendering flow once that's wired up.
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          # actions/upload-artifact@v4 artifacts are immutable per run: re-running this job (via
+          # GitHub's own "re-run" UI, which reuses the same run id) would try to upload under the
+          # same name again and fail because it already exists. run_attempt disambiguates each
+          # attempt so a re-run doesn't clobber (or fail to add to) the previous attempt's evidence.
+          name: qa-smoke-artifacts-${{ github.run_attempt }}
+          path: |
+            build/artifacts/**
+            build/test-results/qaSmokeTest/**
+            build/attempts/**
+            build/allure-results/**
+          if-no-files-found: ignore
+
+      # A step's `if:` cannot see that same step's own `env:` (env application happens after the
+      # if-decision) and cannot reference `secrets` directly at all — so checking "is the webhook
+      # configured" needs its own tiny step, exposing only a boolean step output, rather than
+      # exporting the secret at job level just so a later step's `if:` can see it.
+      - name: Check whether Slack webhook is configured
+        id: check-slack
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL_QA: ${{ secrets.SLACK_WEBHOOK_URL_QA }}
+        run: echo "configured=$([ -n "$SLACK_WEBHOOK_URL_QA" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      # No-op today: SLACK_WEBHOOK_URL_QA has no secret configured for this project yet, so this
+      # step is skipped. Wiring an actual webhook is a separate, deliberate decision (needs the
+      # secret added in repo settings) — this only keeps the extension point ready. Failure-only,
+      # and deliberately minimal (status + run link, no screenshots/scenario detail) per
+      # docs/payment-safety.md's sensitive-artifact-handling rules. The secret is scoped to this
+      # step's own env (and the check step's above) — never job-level — so it isn't exported to
+      # checkout, Gradle, Playwright, or any code under test; only these two steps need it.
+      - name: Notify Slack on failure
+        if: failure() && steps.check-slack.outputs.configured == 'true'
+        env:
+          SLACK_WEBHOOK_URL_QA: ${{ secrets.SLACK_WEBHOOK_URL_QA }}
+        run: |
+          curl -sf -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"QA smoke failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$SLACK_WEBHOOK_URL_QA"
