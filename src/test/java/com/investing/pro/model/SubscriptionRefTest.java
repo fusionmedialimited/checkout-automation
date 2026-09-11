@@ -74,4 +74,19 @@ class SubscriptionRefTest {
 
         assertThrows(IllegalArgumentException.class, () -> cancelled.withCleanupStatus(CleanupStatus.NOT_ATTEMPTED));
     }
+
+    @Test
+    @DisplayName("constructor rejects NOT_ATTEMPTED mixed with a real status, closing the same bypass withCleanupStatus guards against")
+    void constructor_rejectsNotAttemptedMixedWithRealStatus() {
+        assertThrows(IllegalArgumentException.class, () -> new SubscriptionRef("sub-1", "user-1", "plan-1", "run-1",
+                "scenario-1", Set.of(CleanupStatus.NOT_ATTEMPTED, CleanupStatus.SUBSCRIPTION_CANCELLED)));
+    }
+
+    @Test
+    @DisplayName("constructor accepts NOT_ATTEMPTED alone as the sole initial status")
+    void constructor_acceptsNotAttemptedAlone() {
+        SubscriptionRef ref = newRef(CleanupStatus.NOT_ATTEMPTED);
+
+        assertEquals(Set.of(CleanupStatus.NOT_ATTEMPTED), ref.cleanupStatuses());
+    }
 }

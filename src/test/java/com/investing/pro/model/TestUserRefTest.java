@@ -60,4 +60,19 @@ class TestUserRefTest {
 
         assertThrows(IllegalArgumentException.class, () -> deleted.withCleanupStatus(CleanupStatus.NOT_ATTEMPTED));
     }
+
+    @Test
+    @DisplayName("constructor rejects NOT_ATTEMPTED mixed with a real status, closing the same bypass withCleanupStatus guards against")
+    void constructor_rejectsNotAttemptedMixedWithRealStatus() {
+        assertThrows(IllegalArgumentException.class, () -> new TestUserRef("user-1", "user-1@example.test", "run-1",
+                "scenario-1", Set.of(CleanupStatus.NOT_ATTEMPTED, CleanupStatus.ACCOUNT_DELETED)));
+    }
+
+    @Test
+    @DisplayName("constructor accepts NOT_ATTEMPTED alone as the sole initial status")
+    void constructor_acceptsNotAttemptedAlone() {
+        TestUserRef ref = newRef(CleanupStatus.NOT_ATTEMPTED);
+
+        assertEquals(Set.of(CleanupStatus.NOT_ATTEMPTED), ref.cleanupStatuses());
+    }
 }

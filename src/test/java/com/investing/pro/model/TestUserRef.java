@@ -20,6 +20,10 @@ public record TestUserRef(String userId, String email, String runId, String scen
             throw new IllegalArgumentException("email is required");
         }
         cleanupStatuses = Set.copyOf(cleanupStatuses);
+        if (cleanupStatuses.contains(CleanupStatus.NOT_ATTEMPTED) && cleanupStatuses.size() > 1) {
+            throw new IllegalArgumentException(
+                    "NOT_ATTEMPTED cannot coexist with any other cleanup status: " + cleanupStatuses);
+        }
     }
 
     /**

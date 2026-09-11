@@ -31,36 +31,34 @@ jobs:
     # bump both together. See docs/architecture.md "CI runners".
     container: mcr.microsoft.com/playwright/java:v1.52.0-noble
     env:
-      # qa.baseUrl is NOT exposed as a workflow_dispatch input, on purpose: this job runs on the
-      # self-hosted `medium` pool with internal network access, and its rendered
-      # traces/screenshots/video are uploaded as workflow artifacts. An arbitrary free-text
-      # override would let anyone who can dispatch this workflow point the browser at an
-      # unrelated internal host (or a cloud metadata endpoint) and exfiltrate its content through
-      # those artifacts — this job must stay limited to the checked-in master-QA target. If a
-      # genuine need to target a different QA host arises, that needs an explicit, reviewed
-      # allowlist (not a free string) — there is no approved list of alternate QA hosts to
-      # validate against today, so this isn't invented here. See docs/architecture.md
-      # "CI runners".
-      #
-      # Explicitly pinned here (duplicating config/default.properties) rather than left to fall
-      # through to those checked-in defaults: Config checks environment variables before
-      # default.properties, so relying on the defaults alone means a value the self-hosted
-      # `medium` runner happened to inherit (from its host process environment, a leftover from
-      # another job, etc.) could silently redirect the target (QA_BASEURL), switch to a headed
-      # launch this display-less container can't support (QA_HEADLESS), or select an unsupported
-      # browser (QA_BROWSER — Config.browser() would still fail closed for anything but Chromium,
-      # but there's no reason to depend on that rather than just pinning it). Keep all three in
-      # sync with default.properties if those checked-in values ever change.
+      # Every qa.* key that has a checked-in default in config/default.properties is pinned here
+      # explicitly, rather than left to fall through to those defaults: Config checks environment
+      # variables before default.properties, so relying on the defaults alone means a value the
+      # shared, persistent self-hosted `medium` runner happened to inherit (from its host process
+      # environment, a leftover from another job, etc.) could silently change this job's behavior
+      # despite what its own comments/design promise — e.g. redirecting the target (QA_BASEURL,
+      # also not exposed as a workflow_dispatch input: this job has internal network access and
+      # uploads its rendered output as artifacts, so a free-text override would be an
+      # exfiltration vector — see docs/architecture.md "CI runners" for why there's no allowlist
+      # to validate against instead), switching to a headed launch this display-less container
+      # can't support (QA_HEADLESS — confirmed against Playwright's own Docker docs: no
+      # Xvfb/noVNC by default; headed stays a local-only option, see README.md), selecting an
+      # unsupported browser (QA_BROWSER — Config.browser() would still fail closed for anything
+      # but Chromium, but there's no reason to depend on that), suppressing the very diagnostics
+      # this job exists to upload (QA_ARTIFACTPOLICY=never), or breaking the smoke run's timing
+      # (QA_TIMEOUTMS too short → false failures, too long/absurd → hangs). The three
+      # payment-safety flags are pinned to their safe-default `false` too, even though nothing in
+      # this suite currently calls PaymentSafetyGate, as the same explicit-over-implicit
+      # principle this project applies everywhere else (see docs/payment-safety.md). Keep all of
+      # these in sync with default.properties if those checked-in values ever change.
       QA_BASEURL: https://master--www.ams-qa.finboxgcp.investing.com/pro/
       QA_HEADLESS: 'true'
       QA_BROWSER: chromium
-      # Always headless here, not configurable: this container has no display server (confirmed
-      # against Playwright's own Docker docs — no Xvfb/noVNC by default), so a headed launch
-      # would just fail. Headed is a local-only debugging option (see README.md), not a CI one.
-      # Unset today — no Slack webhook secret has been created for this project. The notify step
-      # below is a no-op until one is added in repo settings (see docs/architecture.md
-      # "Reporting"); adding that secret is a deliberate, separate decision, not made here.
-      SLACK_WEBHOOK_URL_QA: ${{ secrets.SLACK_WEBHOOK_URL_QA }}
+      QA_TIMEOUTMS: '30000'
+      QA_ARTIFACTPOLICY: on-failure
+      QA_ALLOWUSERCREATION: 'false'
+      QA_ALLOWSANDBOXPURCHASE: 'false'
+      QA_ALLOWREALCARDPURCHASE: 'false'
     steps:
       - uses: actions/checkout@v4
 
@@ -145,13 +143,28 @@ jobs:
             build/allure-results/**
           if-no-files-found: ignore
 
+      # A step's `if:` cannot see that same step's own `env:` (env application happens after the
+      # if-decision) and cannot reference `secrets` directly at all — so checking "is the webhook
+      # configured" needs its own tiny step, exposing only a boolean step output, rather than
+      # exporting the secret at job level just so a later step's `if:` can see it.
+      - name: Check whether Slack webhook is configured
+        id: check-slack
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL_QA: ${{ secrets.SLACK_WEBHOOK_URL_QA }}
+        run: echo "configured=$([ -n "$SLACK_WEBHOOK_URL_QA" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
       # No-op today: SLACK_WEBHOOK_URL_QA has no secret configured for this project yet, so this
       # step is skipped. Wiring an actual webhook is a separate, deliberate decision (needs the
       # secret added in repo settings) — this only keeps the extension point ready. Failure-only,
       # and deliberately minimal (status + run link, no screenshots/scenario detail) per
-      # docs/payment-safety.md's sensitive-artifact-handling rules.
+      # docs/payment-safety.md's sensitive-artifact-handling rules. The secret is scoped to this
+      # step's own env (and the check step's above) — never job-level — so it isn't exported to
+      # checkout, Gradle, Playwright, or any code under test; only these two steps need it.
       - name: Notify Slack on failure
-        if: failure() && env.SLACK_WEBHOOK_URL_QA != ''
+        if: failure() && steps.check-slack.outputs.configured == 'true'
+        env:
+          SLACK_WEBHOOK_URL_QA: ${{ secrets.SLACK_WEBHOOK_URL_QA }}
         run: |
           curl -sf -X POST -H 'Content-type: application/json' \
             --data "{\"text\":\"QA smoke failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
