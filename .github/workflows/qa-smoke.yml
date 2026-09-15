@@ -15,6 +15,20 @@ on:
         type: choice
         options: ['0', '1', '2']
         default: '0'
+      baseUrl:
+        description: >
+          QA environment URL to load (free text). Accepted knowingly as a free-text field on
+          2026-09-15 to let this job target other QA environments, reversing the earlier
+          fixed-URL decision documented in docs/architecture.md "CI runners" — that decision had
+          flagged this exact field as an exfiltration vector, since this job runs on the
+          internal-network `medium` runner and uploads its rendered output as artifacts. Anyone
+          who can dispatch this workflow can point it at any host `medium` can reach and exfiltrate
+          that host's content through the uploaded artifacts. Restricting who can dispatch this
+          workflow (e.g. branch/environment protection) is a separate, not-yet-done step — see
+          docs/architecture.md "CI runners".
+        required: false
+        type: string
+        default: https://master--www.ams-qa.finboxgcp.investing.com/pro/
 
 jobs:
   smoke:
@@ -36,22 +50,22 @@ jobs:
       # variables before default.properties, so relying on the defaults alone means a value the
       # shared, persistent self-hosted `medium` runner happened to inherit (from its host process
       # environment, a leftover from another job, etc.) could silently change this job's behavior
-      # despite what its own comments/design promise — e.g. redirecting the target (QA_BASEURL,
-      # also not exposed as a workflow_dispatch input: this job has internal network access and
-      # uploads its rendered output as artifacts, so a free-text override would be an
-      # exfiltration vector — see docs/architecture.md "CI runners" for why there's no allowlist
-      # to validate against instead), switching to a headed launch this display-less container
-      # can't support (QA_HEADLESS — confirmed against Playwright's own Docker docs: no
-      # Xvfb/noVNC by default; headed stays a local-only option, see README.md), selecting an
-      # unsupported browser (QA_BROWSER — Config.browser() would still fail closed for anything
-      # but Chromium, but there's no reason to depend on that), suppressing the very diagnostics
-      # this job exists to upload (QA_ARTIFACTPOLICY=never), or breaking the smoke run's timing
-      # (QA_TIMEOUTMS too short → false failures, too long/absurd → hangs). The three
-      # payment-safety flags are pinned to their safe-default `false` too, even though nothing in
-      # this suite currently calls PaymentSafetyGate, as the same explicit-over-implicit
+      # despite what its own comments/design promise — e.g. switching to a headed launch this
+      # display-less container can't support (QA_HEADLESS — confirmed against Playwright's own
+      # Docker docs: no Xvfb/noVNC by default; headed stays a local-only option, see README.md),
+      # selecting an unsupported browser (QA_BROWSER — Config.browser() would still fail closed
+      # for anything but Chromium, but there's no reason to depend on that), suppressing the very
+      # diagnostics this job exists to upload (QA_ARTIFACTPOLICY=never), or breaking the smoke
+      # run's timing (QA_TIMEOUTMS too short → false failures, too long/absurd → hangs). The
+      # three payment-safety flags are pinned to their safe-default `false` too, even though
+      # nothing in this suite currently calls PaymentSafetyGate, as the same explicit-over-implicit
       # principle this project applies everywhere else (see docs/payment-safety.md). Keep all of
       # these in sync with default.properties if those checked-in values ever change.
-      QA_BASEURL: https://master--www.ams-qa.finboxgcp.investing.com/pro/
+      #
+      # QA_BASEURL is the one exception: it comes from the `baseUrl` workflow_dispatch input
+      # above, not a pinned constant — see that input's description for why, and the accepted
+      # exfiltration-vector risk that comes with it.
+      QA_BASEURL: ${{ inputs.baseUrl }}
       QA_HEADLESS: 'true'
       QA_BROWSER: chromium
       QA_TIMEOUTMS: '30000'

@@ -9,6 +9,10 @@ jobs:
   offline:
     name: Compile and offline tests
     runs-on: ubuntu-latest
+    # dorny/test-reporter needs to create a check run for the JUnit summary it publishes below.
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@v4
 
@@ -24,3 +28,13 @@ jobs:
       # browser lives in the separate, manual qa-smoke workflow.
       - name: Compile and run offline tests
         run: ./gradlew test
+
+      # Runs even when the tests above fail, so a red run still gets a readable per-test summary
+      # instead of just a raw Gradle log. Reads Gradle's default JUnit XML output location.
+      - name: Publish JUnit test results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Offline test results
+          path: build/test-results/test/*.xml
+          reporter: java-junit

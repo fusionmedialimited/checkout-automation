@@ -59,6 +59,15 @@ back to `null` or an empty string — this is deliberate: `qa.paymentMode` and
 `ConfigPrecedenceTest` against injected lookup functions, not real system properties/env, so it
 runs identically offline and in CI.
 
+`ConfigPrecedenceTest` and `PaymentSafetyGateTest` also exercise `Config`'s real accessors
+(`Config.baseUrl()`, `PaymentSafetyGate.require*Authorized()`, etc.), which always read real JVM
+system properties — `Config.resolve()`'s environment-variable layer is the only one that can be
+stubbed via `Config.useEnvironmentForTesting()`. Both classes snapshot and clear their managed
+`qa.*` system properties in `@BeforeEach` and restore the snapshot in `@AfterEach`, so a caller
+invocation such as `./gradlew test -Dqa.allowUserCreation=true` can't leak into the
+"unset/default" assertions, and the caller's own property values aren't destroyed for anything
+that runs after these tests in the same JVM.
+
 Application environment (`qa.baseUrl`) and payment mode (`qa.paymentMode`) are separate
 settings on purpose: pointing the browser at master QA says nothing about whether the payment
 processor behind it is wired to sandbox or live credentials.
@@ -102,6 +111,10 @@ browser or the network — see `docs/checkout-testing.md` for the exact commands
 - `ci.yml` (compile + offline `*Test.java` suite, on push/PR) runs on `ubuntu-latest`: it never
   opens a browser or reaches any network target, so a public runner is sufficient and no runner
   authorization is needed.
+- `ci.yml` publishes Gradle's JUnit XML output (`build/test-results/test/*.xml`) as a check run via
+  `dorny/test-reporter`, so pass/fail per test shows directly on the PR/run instead of only in the
+  raw Gradle log; the step runs with `if: always()` so a failing suite still gets a summary. This
+  needs the job-level `checks: write` permission to create that check run.
 - `qa-smoke.yml` (manual, loads master QA) runs on `medium`, a self-hosted runner pool shared
   with the reference project `fusionmedialimited/Cucumber-Playwright-POC`. This is required
   because master QA and other InvestingPro QA environments are not publicly reachable — a
@@ -116,15 +129,22 @@ browser or the network — see `docs/checkout-testing.md` for the exact commands
   needed. The image tag's version must be bumped in lockstep with `playwrightVersion` in
   `build.gradle`; a mismatch risks the container's browser build drifting from the Playwright
   Java client driving it.
-- `qa-smoke.yml` does **not** expose `baseUrl`, `headless`, or browser choice as
-  `workflow_dispatch` inputs, despite `Config`'s precedence chain making all three trivially
-  overridable in principle. `baseUrl` was tried and reverted: this job runs on the self-hosted
-  `medium` pool with internal network access and uploads its rendered traces/screenshots/video as
-  workflow artifacts, so a free-text URL override would let anyone who can dispatch the workflow
-  point the browser at an unrelated internal host and exfiltrate its content through those
-  artifacts — there is no approved allowlist of alternate QA hosts to validate against instead,
-  so this stays fixed to the checked-in master-QA target rather than inventing one. `headless`
-  isn't exposed because the `mcr.microsoft.com/playwright/java` container has no display server
+- `qa-smoke.yml` exposes `baseUrl` as a free-text `workflow_dispatch` input (default: the
+  checked-in master-QA URL), so the job can target other QA environments. This reverses an
+  earlier decision: `baseUrl` was tried as an input once before and reverted, because this job
+  runs on the self-hosted `medium` pool with internal network access and uploads its rendered
+  traces/screenshots/video as workflow artifacts — a free-text URL override lets anyone who can
+  dispatch the workflow point the browser at an arbitrary internal host and exfiltrate its
+  content through those artifacts, and there is still no approved allowlist of alternate QA
+  hosts to validate against instead of free text. Re-exposing it as free text was a knowing,
+  explicit decision (2026-09-15) to accept that risk in exchange for being able to change
+  environment without editing the workflow file; it has **not** been compensated for by
+  restricting who can dispatch this workflow (e.g. branch/environment protection rules) — that
+  remains a gap. Anyone tightening this later should prefer a fixed `choice` allowlist of known
+  QA hosts over free text once such a list is approved.
+- `headless` and browser choice are still not exposed as `workflow_dispatch` inputs, despite
+  `Config`'s precedence chain making both trivially overridable in principle. `headless` isn't
+  exposed because the `mcr.microsoft.com/playwright/java` container has no display server
   (Playwright's own Docker docs confirm no Xvfb/noVNC by default) — a headed launch would just
   fail; headed stays a local-only debugging option (see `README.md`). Browser choice isn't
   exposed because only Chromium is supported today (`BrowserResources.launchBrowser`), so a

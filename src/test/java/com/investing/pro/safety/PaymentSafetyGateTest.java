@@ -7,11 +7,28 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @DisplayName("PaymentSafetyGate: user-creation, sandbox-purchase, and real-card-purchase authorization")
 class PaymentSafetyGateTest {
+
+    // The properties PaymentSafetyGate (via Config) reads. Snapshotting and clearing these
+    // - rather than just clearing them in @AfterEach - closes a gap a review caught: a caller
+    // invocation such as `./gradlew test -Dqa.allowUserCreation=true` inherits straight into the
+    // JVM's real system properties, which Config.resolve() always reads directly (only the
+    // environment-variable layer is stubbable via useEnvironmentForTesting). Without clearing
+    // before each test too, the "unset/default" assertions below would observe the caller's
+    // authorization instead of the intended baseline.
+    private static final String[] MANAGED_PROPERTIES = {
+            "qa.allowUserCreation", "qa.allowSandboxPurchase", "qa.allowRealCardPurchase",
+            "qa.paymentMode", "qa.realCardAuthorizationRef"
+    };
+
+    private final Map<String, String> originalProperties = new HashMap<>();
 
     @BeforeEach
     void isolateFromRealEnvironment() {
@@ -21,15 +38,22 @@ class PaymentSafetyGateTest {
         // QA_* variable would make the default-disabled and missing-mode tests below pass or fail
         // for the wrong reason.
         Config.useEnvironmentForTesting(key -> null);
+
+        for (String key : MANAGED_PROPERTIES) {
+            originalProperties.put(key, System.getProperty(key));
+            System.clearProperty(key);
+        }
     }
 
     @AfterEach
-    void clearAuthorizationFlags() {
-        System.clearProperty("qa.allowUserCreation");
-        System.clearProperty("qa.allowSandboxPurchase");
-        System.clearProperty("qa.allowRealCardPurchase");
-        System.clearProperty("qa.paymentMode");
-        System.clearProperty("qa.realCardAuthorizationRef");
+    void restoreCallerConfiguration() {
+        originalProperties.forEach((key, value) -> {
+            if (value == null) {
+                System.clearProperty(key);
+            } else {
+                System.setProperty(key, value);
+            }
+        });
         Config.resetEnvironmentForTesting();
     }
 

@@ -5,6 +5,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -17,6 +19,19 @@ class ConfigPrecedenceTest {
 
     private static final String KEY = "qa.someSetting";
 
+    // The properties the tests below set via Config's real accessors (not the
+    // resolve()-with-injected-functions ones, which never touch real system properties).
+    // Snapshotting and clearing these - rather than only clearing them in @AfterEach - closes a
+    // gap a review caught: a caller invocation such as `./gradlew test -Dqa.paymentMode=sandbox`
+    // inherits straight into the JVM's real system properties, which Config.resolve() always
+    // reads directly, so without clearing before each test too the "unset/default" assertions
+    // would observe the caller's value instead of the intended baseline.
+    private static final String[] MANAGED_PROPERTIES = {
+            KEY, "qa.baseUrl", "qa.allowUserCreation", "qa.paymentMode", "qa.timeoutMs"
+    };
+
+    private final Map<String, String> originalProperties = new HashMap<>();
+
     @BeforeEach
     void isolateFromRealEnvironment() {
         // Tests below that call the real Config.baseUrl()/allowUserCreation()/etc. (not the
@@ -25,15 +40,22 @@ class ConfigPrecedenceTest {
         // .env.example locally) would leak in and make default/missing-value assertions pass or
         // fail for the wrong reason.
         Config.useEnvironmentForTesting(key -> null);
+
+        for (String key : MANAGED_PROPERTIES) {
+            originalProperties.put(key, System.getProperty(key));
+            System.clearProperty(key);
+        }
     }
 
     @AfterEach
-    void clearRealSystemProperties() {
-        System.clearProperty(KEY);
-        System.clearProperty("qa.baseUrl");
-        System.clearProperty("qa.allowUserCreation");
-        System.clearProperty("qa.paymentMode");
-        System.clearProperty("qa.timeoutMs");
+    void restoreCallerConfiguration() {
+        originalProperties.forEach((key, value) -> {
+            if (value == null) {
+                System.clearProperty(key);
+            } else {
+                System.setProperty(key, value);
+            }
+        });
         Config.resetEnvironmentForTesting();
     }
 
