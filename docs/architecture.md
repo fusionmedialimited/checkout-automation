@@ -115,7 +115,7 @@ browser or the network — see `docs/checkout-testing.md` for the exact commands
   `dorny/test-reporter`, so pass/fail per test shows directly on the PR/run instead of only in the
   raw Gradle log; the step runs with `if: always()` so a failing suite still gets a summary. This
   needs the job-level `checks: write` permission to create that check run.
-- `qa-smoke.yml` (manual, loads master QA) runs on `medium`, a self-hosted runner pool shared
+- `qa-smoke.yml` (manual, loads master QA by default) runs on `medium`, a self-hosted runner pool shared
   with the reference project `fusionmedialimited/Cucumber-Playwright-POC`. This is required
   because master QA and other InvestingPro QA environments are not publicly reachable — a
   GitHub-hosted runner has no route to them, the same constraint that project documents for its
@@ -129,19 +129,37 @@ browser or the network — see `docs/checkout-testing.md` for the exact commands
   needed. The image tag's version must be bumped in lockstep with `playwrightVersion` in
   `build.gradle`; a mismatch risks the container's browser build drifting from the Playwright
   Java client driving it.
-- `qa-smoke.yml` exposes `baseUrl` as a free-text `workflow_dispatch` input (default: the
-  checked-in master-QA URL), so the job can target other QA environments. This reverses an
-  earlier decision: `baseUrl` was tried as an input once before and reverted, because this job
-  runs on the self-hosted `medium` pool with internal network access and uploads its rendered
-  traces/screenshots/video as workflow artifacts — a free-text URL override lets anyone who can
-  dispatch the workflow point the browser at an arbitrary internal host and exfiltrate its
-  content through those artifacts, and there is still no approved allowlist of alternate QA
-  hosts to validate against instead of free text. Re-exposing it as free text was a knowing,
-  explicit decision (2026-09-15) to accept that risk in exchange for being able to change
-  environment without editing the workflow file; it has **not** been compensated for by
-  restricting who can dispatch this workflow (e.g. branch/environment protection rules) — that
-  remains a gap. Anyone tightening this later should prefer a fixed `choice` allowlist of known
-  QA hosts over free text once such a list is approved.
+- `qa-smoke.yml` exposes `environment` as a `workflow_dispatch` input (default: `master`) — the
+  branch/ticket prefix used in that environment's URL, since InvestingPro provisions a QA
+  environment per ticket at `https://<prefix>--www.ams-qa.finboxgcp.investing.com/pro/` (the same
+  pattern master QA itself uses). The job builds `QA_BASEURL` from this input rather than
+  accepting a full URL. This went through two earlier, narrower shapes worth knowing about if
+  this ever needs revisiting: `baseUrl` as a `workflow_dispatch` input was tried once and
+  reverted, because this job runs on the self-hosted `medium` pool with internal network access
+  and uploads its rendered traces/screenshots/video as workflow artifacts — a free-text URL
+  override would let anyone who can dispatch the workflow point the browser at an arbitrary
+  internal host and exfiltrate its content through those artifacts. It was then reintroduced as
+  free text anyway (2026-09-15) to unblock per-ticket-environment testing, accepting that risk
+  explicitly since there was no approved allowlist of alternate hosts to validate against — a
+  decision a second review round flagged again, more forcefully (SSRF/data-exfiltration framing).
+  The current `environment`-prefix shape resolves that properly instead of continuing to accept
+  the risk: the `Validate environment input` step rejects anything that isn't a bare DNS label
+  (`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`) before checkout or any browser navigation
+  happens, so the resulting URL can never resolve outside `*.ams-qa.finboxgcp.investing.com` —
+  full per-ticket flexibility without the open-host risk. Restricting *who* can dispatch this
+  workflow (e.g. branch/environment protection rules) is still a separate, not-yet-done step.
+- The Gherkin scenario/step text says "the configured QA target", not "master QA", precisely
+  because the target is overridable (see above) — a fixed "master QA" name would misreport what
+  actually ran once someone dispatches against a different `environment`. `qa-smoke.yml`'s job
+  name matches this for the same reason. Historical verification-against-master-QA claims
+  elsewhere (e.g. `LandingPage`'s Javadoc, dated 2026-09-09) describe when/how those selectors
+  were last validated, not a runtime guarantee about what a given run targets, and are unaffected.
+- `qa-smoke.yml`'s checkout step sets `persist-credentials: false`, and the job is scoped to
+  `permissions: contents: read`. Neither `actions/checkout`'s default of persisting the
+  `GITHUB_TOKEN` in the local git config, nor a broader default token scope, has any purpose
+  here — nothing in this job pushes or calls the GitHub API via git — and leaving either in place
+  would let anything that runs after checkout (including a dispatched, unreviewed ref) read a
+  live token from disk on a runner that also has internal network access.
 - `headless` and browser choice are still not exposed as `workflow_dispatch` inputs, despite
   `Config`'s precedence chain making both trivially overridable in principle. `headless` isn't
   exposed because the `mcr.microsoft.com/playwright/java` container has no display server

@@ -1,8 +1,9 @@
 name: QA Smoke (manual)
 
-# Manual only: no push/PR/schedule trigger. This workflow loads the master QA landing page — it
-# must never gain a scheduled trigger, and the scenario it runs must never create a user or
-# submit a payment (see docs/checkout-testing.md and docs/payment-safety.md).
+# Manual only: no push/PR/schedule trigger. This workflow loads a QA landing page (master QA by
+# default; see the `environment` input below) — it must never gain a scheduled trigger, and the
+# scenario it runs must never create a user or submit a payment (see docs/checkout-testing.md and
+# docs/payment-safety.md).
 on:
   workflow_dispatch:
     inputs:
@@ -15,30 +16,37 @@ on:
         type: choice
         options: ['0', '1', '2']
         default: '0'
-      baseUrl:
+      environment:
         description: >
-          QA environment URL to load (free text). Accepted knowingly as a free-text field on
-          2026-09-15 to let this job target other QA environments, reversing the earlier
-          fixed-URL decision documented in docs/architecture.md "CI runners" — that decision had
-          flagged this exact field as an exfiltration vector, since this job runs on the
-          internal-network `medium` runner and uploads its rendered output as artifacts. Anyone
-          who can dispatch this workflow can point it at any host `medium` can reach and exfiltrate
-          that host's content through the uploaded artifacts. Restricting who can dispatch this
-          workflow (e.g. branch/environment protection) is a separate, not-yet-done step — see
-          docs/architecture.md "CI runners".
+          QA environment to target, as the branch/ticket prefix that environment's URL uses (e.g.
+          "master" for https://master--www.ams-qa.finboxgcp.investing.com/pro/, or a ticket
+          branch's own per-ticket preview prefix — enter it exactly as that environment's actual
+          URL prefix, not the ticket key). This job builds the full URL itself
+          (https://<environment>--www.ams-qa.finboxgcp.investing.com/pro/) and the "Validate
+          environment input" step below rejects anything that isn't a bare DNS label
+          (letters/digits/hyphens only), so this can never resolve outside that one domain —
+          unlike the free-text `baseUrl` input this replaced, which a review flagged as an
+          SSRF/exfiltration path (this job runs on the internal-network `medium` runner and
+          uploads its rendered output as artifacts). See docs/architecture.md "CI runners".
         required: false
         type: string
-        default: https://master--www.ams-qa.finboxgcp.investing.com/pro/
+        default: master
 
 jobs:
   smoke:
-    name: QA smoke against master QA
+    name: QA smoke against configured QA target
     # Master QA is not publicly reachable — a GitHub-hosted `ubuntu-latest` runner cannot reach
     # it. `medium` is the self-hosted runner pool shared with the reference project
     # fusionmedialimited/Cucumber-Playwright-POC; this project's use of that pool was confirmed
     # authorized by the project owner (2026-09-11). This is a CI-infrastructure detail only, not
     # a runtime dependency on that repo. See docs/architecture.md "CI runners".
     runs-on: medium
+    # Nothing in this job needs to push, comment, or otherwise call the GitHub API — read-only
+    # contents access is enough, and there's no reason to grant this dispatchable-by-more-than-one
+    # job anything broader (review finding: least-privilege on a job whose dispatch ref isn't a
+    # reviewed/protected one).
+    permissions:
+      contents: read
     # Official Playwright Java image: ships Chromium and its OS-level dependencies preinstalled
     # for the exact Playwright version this project depends on, so no separate browser-install
     # step is needed. The tag's version MUST match `playwrightVersion` in build.gradle exactly —
@@ -62,10 +70,14 @@ jobs:
       # principle this project applies everywhere else (see docs/payment-safety.md). Keep all of
       # these in sync with default.properties if those checked-in values ever change.
       #
-      # QA_BASEURL is the one exception: it comes from the `baseUrl` workflow_dispatch input
-      # above, not a pinned constant — see that input's description for why, and the accepted
-      # exfiltration-vector risk that comes with it.
-      QA_BASEURL: ${{ inputs.baseUrl }}
+      # QA_BASEURL is the one exception: it's built from the `environment` workflow_dispatch
+      # input above, not a pinned constant — see that input's description. The `environment`
+      # value is only ever inserted here as a job-level env value (a structured field GitHub
+      # Actions resolves before the job starts), never spliced into a `run:` step's script text,
+      # so this assignment itself carries no script-injection risk regardless of the input's
+      # content — it's the "Validate environment input" step below, not this line, that stops a
+      # malformed value from producing a URL pointing somewhere unintended.
+      QA_BASEURL: https://${{ inputs.environment }}--www.ams-qa.finboxgcp.investing.com/pro/
       QA_HEADLESS: 'true'
       QA_BROWSER: chromium
       QA_TIMEOUTMS: '30000'
@@ -74,7 +86,32 @@ jobs:
       QA_ALLOWSANDBOXPURCHASE: 'false'
       QA_ALLOWREALCARDPURCHASE: 'false'
     steps:
+      # Fails the whole job before checkout/build/browser-navigation if `environment` isn't a
+      # bare DNS label. Runs first and reads the input only via `env:` (never spliced into this
+      # script's text) so this check itself can't be broken out of via shell metacharacters in
+      # the input. This is what actually keeps QA_BASEURL above confined to
+      # *.ams-qa.finboxgcp.investing.com — without it, a value like "evil.example.com/x#" would
+      # make QA_BASEURL a URL whose real host is evil.example.com (the "#" turns the rest into a
+      # fragment the browser never sends), reopening the exfiltration path the free-text `baseUrl`
+      # input this replaced was flagged for.
+      - name: Validate environment input
+        env:
+          ENVIRONMENT_INPUT: ${{ inputs.environment }}
+        run: |
+          set -eu
+          if ! [[ "$ENVIRONMENT_INPUT" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$ ]]; then
+            echo "::error::Invalid 'environment' input '$ENVIRONMENT_INPUT': must be a bare DNS label (letters, digits, hyphens only; 1-63 chars; no leading/trailing hyphen). Enter the environment's URL prefix, not a full URL."
+            exit 1
+          fi
+
+      # persist-credentials: false (default is true) — actions/checkout otherwise leaves the
+      # job's GITHUB_TOKEN in the local git config for the rest of the job. This runner has
+      # internal network access, and nothing later in this job needs the token (no push, no API
+      # call via git), so there's no reason for it to be readable from disk by anything that runs
+      # after checkout — including whatever ref was dispatched (review finding).
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-java@v4
         with:

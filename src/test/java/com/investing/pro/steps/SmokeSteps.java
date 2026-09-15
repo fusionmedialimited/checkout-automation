@@ -19,7 +19,7 @@ public final class SmokeSteps {
         this.browserResources = browserResources;
     }
 
-    @Given("I open the InvestingPro landing page on master QA")
+    @Given("I open the InvestingPro landing page on the configured QA target")
     public void openLandingPage() {
         landingPage = new LandingPage(browserResources.page());
         landingPage.open(Config.baseUrl());
