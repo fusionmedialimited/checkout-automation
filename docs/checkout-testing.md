@@ -113,7 +113,7 @@ being invented scenario-by-scenario.
 | Path | Command | Touches network/browser? | Can create users / pay? |
 |---|---|---|---|
 | Offline validation | `./gradlew test` | No | No |
-| QA smoke | `./gradlew qaSmokeTest` | Yes (master QA only) | No |
+| QA smoke | `./gradlew qaSmokeTest` | Yes (configured QA target only — master by default, see `qa-smoke.yml`'s `environment` input) | No |
 | QA sandbox checkout | *(future — no runner or Gradle task exists yet)* | Yes | Only with `qa.allowUserCreation`/`qa.allowSandboxPurchase` set |
 | Authorized real-payment | *(future — no runner or Gradle task exists yet)* | Yes | Only with the full real-card gate satisfied, see `docs/payment-safety.md` |
 

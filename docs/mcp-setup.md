@@ -8,9 +8,11 @@ have to rediscover it.
 
 ## What was discovered in this environment
 
-- **GitHub**: no GitHub MCP tool and no authenticated `gh` CLI were available. The reference
-  repository could not be inspected (see `docs/architecture.md`). If a GitHub MCP server or an
-  authenticated `gh` is set up later, re-run that discovery.
+- **GitHub**: no GitHub MCP tool was available in this environment. `gh` was not authenticated
+  during the initial setup phase, so the reference repository was unreachable then — but it was
+  later authenticated with `repo` scope, and the reference repo was actually inspected once that
+  happened (see `docs/architecture.md` → "Reference project" for what that inspection found). No
+  GitHub MCP server has been set up; if one is added later, prefer it over shelling out to `gh`.
 - **Browser (`claude-in-chrome`)**: available, and used during this setup phase to confirm the
   master QA landing page actually renders (it's a client-side SPA — a plain HTTP fetch returns
   no usable body) and to record the one locator used by the smoke test. Continue using it for

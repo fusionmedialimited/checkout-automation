@@ -147,7 +147,14 @@ browser or the network — see `docs/checkout-testing.md` for the exact commands
   (`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`) before checkout or any browser navigation
   happens, so the resulting URL can never resolve outside `*.ams-qa.finboxgcp.investing.com` —
   full per-ticket flexibility without the open-host risk. Restricting *who* can dispatch this
-  workflow (e.g. branch/environment protection rules) is still a separate, not-yet-done step.
+  workflow is still a separate, not-yet-done step: `workflow_dispatch` lets anyone who can
+  dispatch it pick an arbitrary unreviewed ref, and `actions/checkout` checks that ref out onto
+  `medium` (internal network access) and runs whatever `build.gradle`/test code — or this
+  workflow file itself — that ref contains; constraining the `environment` *input* only protects
+  the URL this file builds, not the ref GitHub actually executes (review finding, 2026-09-15). The
+  concrete fix is a GitHub Environment with required reviewers, referenced via this job's
+  `environment:` key — that Environment needs to be created in repo Settings by someone with
+  admin access before the workflow can reference it usefully; not done here.
 - The Gherkin scenario/step text says "the configured QA target", not "master QA", precisely
   because the target is overridable (see above) — a fixed "master QA" name would misreport what
   actually ran once someone dispatches against a different `environment`. `qa-smoke.yml`'s job

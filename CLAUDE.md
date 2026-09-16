@@ -8,7 +8,7 @@ this file summarizes and points into them, it doesn't replace them.
 
 ```bash
 ./gradlew test                             # offline: config/safety-gate tests only, no browser
-./gradlew qaSmokeTest                      # QA smoke: loads master QA landing page only
+./gradlew qaSmokeTest                      # QA smoke: loads the configured QA landing page only
 ./gradlew testClasses                      # compile without running anything
 ```
 

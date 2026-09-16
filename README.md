@@ -27,7 +27,8 @@ payment flows — see `docs/checkout-testing.md` for exactly what's built vs. st
 # image that ships Chromium already, so it doesn't need this task.
 ./gradlew installChromium
 
-# QA smoke: loads the master QA landing page only. No user creation, no payment.
+# QA smoke: loads the configured QA landing page only (master by default; qa-smoke.yml's
+# `environment` input can target another QA environment). No user creation, no payment.
 ./gradlew qaSmokeTest
 ```
 

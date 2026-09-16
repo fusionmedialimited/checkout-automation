@@ -137,6 +137,16 @@ tasks.register('qaSmokeTest', Test) {
     // choice — changing it needs an actual build.gradle edit, not a CLI flag.
     systemProperty('cucumber.execution.parallel.enabled', 'false')
 
+    // Cucumber's file-backed `rerun:` formatter (SmokeTestRunner's PLUGIN_PROPERTY_NAME) does
+    // not create its own parent directory — on a clean checkout, build/cucumber-rerun doesn't
+    // exist yet, and the plugin fails while initializing/finalizing instead of producing
+    // build/cucumber-rerun/smoke.txt, which qa-smoke.yml's retry loop depends on (review
+    // finding). Created here, not in qa-smoke.yml, so local `./gradlew qaSmokeTest` runs get the
+    // same guarantee CI does.
+    doFirst {
+        mkdir("$projectDir/build/cucumber-rerun")
+    }
+
     testLogging {
         events 'passed', 'failed', 'skipped', 'standard_out', 'standard_error'
         exceptionFormat 'full'

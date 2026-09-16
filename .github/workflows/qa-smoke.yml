@@ -86,6 +86,16 @@ jobs:
       QA_ALLOWSANDBOXPURCHASE: 'false'
       QA_ALLOWREALCARDPURCHASE: 'false'
     steps:
+      # `medium` is a persistent self-hosted runner, not an ephemeral one — its workspace can
+      # carry over build/ output from a previous run on this same machine. Without this, a
+      # dispatch whose `environment` input fails validation below (which runs before checkout,
+      # so it never gets a fresh workspace) would still hit the always()-gated upload step and
+      # re-upload a prior run's stale build/artifacts as if they were this run's evidence
+      # (review finding). Runs first, before validation, so no later step can be skipped past it.
+      - name: Clean stale build output from a prior run
+        shell: bash
+        run: rm -rf build/artifacts build/test-results build/attempts build/allure-results build/cucumber-rerun
+
       # Fails the whole job before checkout/build/browser-navigation if `environment` isn't a
       # bare DNS label. Runs first and reads the input only via `env:` (never spliced into this
       # script's text) so this check itself can't be broken out of via shell metacharacters in
@@ -95,6 +105,10 @@ jobs:
       # fragment the browser never sends), reopening the exfiltration path the free-text `baseUrl`
       # input this replaced was flagged for.
       - name: Validate environment input
+        # Explicit, not a default: a `container:` job's default shell resolution can land on
+        # `/bin/sh` even in an image that has bash, which silently breaks this step's Bash-only
+        # `[[ ... =~ ... ]]` conditional before checkout ever runs (review finding). Pin it.
+        shell: bash
         env:
           ENVIRONMENT_INPUT: ${{ inputs.environment }}
         run: |
@@ -134,6 +148,11 @@ jobs:
       # is never cleaned between attempts (no `clean` task runs here), so Allure can show the
       # full retry history.
       - name: Run QA smoke suite (retries only rerun previously-failed scenarios)
+        # Same container-default-shell hazard as the validation step above: this script's
+        # `snapshot_attempt()` function uses Bash-only `local`, which `/bin/sh` doesn't support
+        # (review finding). Pin it explicitly rather than rely on the image happening to default
+        # to bash.
+        shell: bash
         run: |
           # GitHub Actions' default bash shell runs with `-e` (and pipefail): disable that here,
           # since this step's whole point is to keep going after `./gradlew` fails so it can
