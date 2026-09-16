@@ -11,8 +11,8 @@ com.investing.pro
 ├── safety      PaymentSafetyGate: the only place that authorizes user creation / purchases
 ├── context     Scenario-scoped state (TestRunContext, BrowserResources), injected by PicoContainer
 ├── hooks       Cucumber @Before/@After: browser lifecycle, artifact capture
-├── pages       Page objects: locators and raw Playwright calls live here, nowhere else
-├── steps       Business-readable Cucumber step definitions; delegate to pages/services
+├── pages       Page objects: locators and raw Playwright calls live here, never an assertion
+├── steps       Business-readable Cucumber step definitions; assert against what pages/ expose
 ├── runners     JUnit Platform @Suite classes that select which features + tags to run
 ├── model       Plain data records shared across the above (TestUserRef, SubscriptionRef, ...)
 └── support     Small stateless utilities (IdGenerator)
@@ -295,6 +295,13 @@ instead of reference-specific ones — see git history for that phase's reasonin
   adding locator-builder convenience methods. This project keeps the simpler inheritance pattern
   (`BasePage`) for now given its current single-page scope; worth revisiting only if locator
   convenience methods start getting duplicated across many page objects.
+- **Assertions belong in step definitions, not page objects** (review finding, 2026-09-16): a
+  page object's job is to identify state a step can assert on — a public `page()` accessor
+  (`BasePage`) and public locators/patterns like `LandingPage.getStartedCta()` /
+  `titlePattern()` — never to call `assertThat(...)` itself. `LandingPage.assertLoaded()`
+  originally did the latter; it was split so `SmokeSteps.verifyStableIndicator()` runs the
+  `assertThat(...)` calls against what `LandingPage` exposes. Apply the same split to every
+  future page object, not just this one.
 - **Heavier reporting pipeline, originally**: Allure 3 (self-hosted Allure Portal, Slack
   notification action, video recording on failure) vs. this project's initial Cucumber HTML/JSON
   + JUnit XML + Playwright tracing. This project has since adopted Allure 2

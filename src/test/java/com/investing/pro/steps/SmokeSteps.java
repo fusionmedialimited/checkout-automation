@@ -6,9 +6,13 @@ import com.investing.pro.pages.LandingPage;
 import io.cucumber.java.en.Given;
 import io.cucumber.java.en.Then;
 
+import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
+
 /**
  * Step definitions for the QA smoke check. Must never create a user or submit a payment.
- * Locators and Playwright assertions stay in {@link LandingPage}; this class only orchestrates.
+ * Locators and raw Playwright interaction stay in {@link LandingPage}; assertions belong here,
+ * per BDD convention (see {@code BasePage}'s Javadoc) — this class asserts against what
+ * {@link LandingPage} exposes, rather than delegating the assertion itself to the page object.
  */
 public final class SmokeSteps {
 
@@ -27,6 +31,7 @@ public final class SmokeSteps {
 
     @Then("the page shows a stable InvestingPro indicator")
     public void verifyStableIndicator() {
-        landingPage.assertLoaded();
+        assertThat(landingPage.page()).hasTitle(landingPage.titlePattern());
+        assertThat(landingPage.getStartedCta()).isVisible();
     }
 }

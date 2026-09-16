@@ -19,9 +19,12 @@ the gap instead.
 ## Architecture and coding conventions
 
 - Everything lives under `src/test` (test-only framework, no `src/main`).
-- Locators and raw Playwright calls: `pages/` only. Business-readable steps: `steps/` only,
-  delegating to `pages/`, future `services/`, and `safety/`. Per-scenario state: `context/`,
-  injected by PicoContainer (`cucumber-picocontainer`) — never a static field.
+- Locators and raw Playwright interaction (navigation, clicks, typing): `pages/` only, never a
+  page object asserting on its own state — per BDD convention, assertions belong in `steps/`,
+  which assert against what a page object exposes (see `BasePage`'s Javadoc). Business-readable
+  steps: `steps/` only, delegating locators/interaction to `pages/`, future `services/`, and
+  `safety/`. Per-scenario state: `context/`, injected by PicoContainer (`cucumber-picocontainer`)
+  — never a static field.
 - `./gradlew test` (no args) must never touch a browser or network target. This works because
   Cucumber suite runners under `runners/` are named so they don't match the default `test` task's
   `*Test` class-name pattern (see `build.gradle`); keep that naming convention for any new
