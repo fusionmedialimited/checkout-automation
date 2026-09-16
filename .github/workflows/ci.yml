@@ -14,7 +14,13 @@ jobs:
       contents: read
       checks: write
     steps:
+      # persist-credentials: false (default is true) — this job runs `./gradlew test` against PR
+      # code (including forks) and holds `checks: write`, so leaving the GITHUB_TOKEN readable
+      # from local git config would let build/test code from an untrusted PR exfiltrate it
+      # (review finding). Nothing later in this job pushes or otherwise needs the token.
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-java@v4
         with:

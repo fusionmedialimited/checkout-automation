@@ -153,6 +153,15 @@ jobs:
         # (review finding). Pin it explicitly rather than rely on the image happening to default
         # to bash.
         shell: bash
+        # `retry` is a `choice` input, but that only constrains the workflow_dispatch web UI — a
+        # dispatch via the API/gh can send any string for it. The value used to be spliced
+        # straight into this script's text as `RETRIES="${{ inputs.retry }}"`, so a crafted
+        # payload could inject arbitrary shell before the retry loop ever runs (review finding).
+        # Routing it through `env:` makes GitHub Actions pass it as an environment variable value
+        # instead of substituting it into the script text, and the `case` guard below then
+        # rejects anything that isn't exactly 0/1/2 rather than trusting the input's shape.
+        env:
+          RETRY_INPUT: ${{ inputs.retry }}
         run: |
           # GitHub Actions' default bash shell runs with `-e` (and pipefail): disable that here,
           # since this step's whole point is to keep going after `./gradlew` fails so it can
@@ -160,7 +169,13 @@ jobs:
           # before STATUS is even captured.
           set +e
           set -u
-          RETRIES="${{ inputs.retry }}"
+          case "$RETRY_INPUT" in
+            0|1|2) RETRIES="$RETRY_INPUT" ;;
+            *)
+              echo "::error::Invalid 'retry' input '$RETRY_INPUT': must be exactly 0, 1, or 2."
+              exit 1
+              ;;
+          esac
           RERUN_FILE=build/cucumber-rerun/smoke.txt
           ATTEMPT=1
 

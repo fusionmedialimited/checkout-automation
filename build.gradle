@@ -70,6 +70,16 @@ test {
     useJUnitPlatform()
     include '**/*Test.class'
     exclude '**/runners/**'
+    // junit-platform.properties sets junit.jupiter.execution.parallel.enabled=false as a
+    // baseline default only — a system property passed on the command line
+    // (-Djunit.jupiter.execution.parallel.enabled=true) overrides that file per JUnit Platform's
+    // own configuration-parameter resolution, the same way qaSmokeTest's Cucumber flag needed
+    // pinning below. That matters here because ConfigPrecedenceTest and PaymentSafetyGateTest
+    // clear/set/restore shared JVM system properties and mutate static Config state, so running
+    // them in parallel risks one test observing another's in-flight authorization/config change
+    // (review finding). Set AFTER useJUnitPlatform() so it always wins regardless of what's
+    // passed on the invoking command line.
+    systemProperty('junit.jupiter.execution.parallel.enabled', 'false')
 }
 
 // Local dev convenience only — CI's qa-smoke.yml doesn't need this, it runs qaSmokeTest inside
