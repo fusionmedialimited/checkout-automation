@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  offline:
+    name: Compile and offline tests
+    runs-on: ubuntu-latest
+    # dorny/test-reporter needs to create a check run for the JUnit summary it publishes below.
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      # persist-credentials: false (default is true) — this job runs `./gradlew test` against PR
+      # code (including forks) and holds `checks: write`, so leaving the GITHUB_TOKEN readable
+      # from local git config would let build/test code from an untrusted PR exfiltrate it
+      # (review finding). Nothing later in this job pushes or otherwise needs the token.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # No browser is installed and no network target is touched here on purpose: `test` only
+      # runs plain *Test classes (see build.gradle / docs/architecture.md). Anything that opens a
+      # browser lives in the separate, manual qa-smoke workflow.
+      - name: Compile and run offline tests
+        run: ./gradlew test
+
+      # Runs even when the tests above fail, so a red run still gets a readable per-test summary
+      # instead of just a raw Gradle log. Reads Gradle's default JUnit XML output location.
+      - name: Publish JUnit test results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Offline test results
+          path: build/test-results/test/*.xml
+          reporter: java-junit

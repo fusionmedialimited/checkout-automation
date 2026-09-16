@@ -1,0 +1,256 @@
+name: QA Smoke (manual)
+
+# Manual only: no push/PR/schedule trigger. This workflow loads a QA landing page (master QA by
+# default; see the `environment` input below) — it must never gain a scheduled trigger, and the
+# scenario it runs must never create a user or submit a payment (see docs/checkout-testing.md and
+# docs/payment-safety.md).
+on:
+  workflow_dispatch:
+    inputs:
+      retry:
+        description: >
+          Retries for scenarios that fail (reruns only the failed ones, via Cucumber's rerun
+          file). Safe here because this suite never creates a user or submits a payment — see
+          docs/payment-safety.md before reusing this for any suite that does.
+        required: false
+        type: choice
+        options: ['0', '1', '2']
+        default: '0'
+      environment:
+        description: >
+          QA environment to target, as the branch/ticket prefix that environment's URL uses (e.g.
+          "master" for https://master--www.ams-qa.finboxgcp.investing.com/pro/, or a ticket
+          branch's own per-ticket preview prefix — enter it exactly as that environment's actual
+          URL prefix, not the ticket key). This job builds the full URL itself
+          (https://<environment>--www.ams-qa.finboxgcp.investing.com/pro/) and the "Validate
+          environment input" step below rejects anything that isn't a bare DNS label
+          (letters/digits/hyphens only), so this can never resolve outside that one domain —
+          unlike the free-text `baseUrl` input this replaced, which a review flagged as an
+          SSRF/exfiltration path (this job runs on the internal-network `medium` runner and
+          uploads its rendered output as artifacts). See docs/architecture.md "CI runners".
+        required: false
+        type: string
+        default: master
+
+jobs:
+  smoke:
+    name: QA smoke against configured QA target
+    # Master QA is not publicly reachable — a GitHub-hosted `ubuntu-latest` runner cannot reach
+    # it. `medium` is the self-hosted runner pool shared with the reference project
+    # fusionmedialimited/Cucumber-Playwright-POC; this project's use of that pool was confirmed
+    # authorized by the project owner (2026-09-11). This is a CI-infrastructure detail only, not
+    # a runtime dependency on that repo. See docs/architecture.md "CI runners".
+    runs-on: medium
+    # Nothing in this job needs to push, comment, or otherwise call the GitHub API — read-only
+    # contents access is enough, and there's no reason to grant this dispatchable-by-more-than-one
+    # job anything broader (review finding: least-privilege on a job whose dispatch ref isn't a
+    # reviewed/protected one).
+    permissions:
+      contents: read
+    # Official Playwright Java image: ships Chromium and its OS-level dependencies preinstalled
+    # for the exact Playwright version this project depends on, so no separate browser-install
+    # step is needed. The tag's version MUST match `playwrightVersion` in build.gradle exactly —
+    # bump both together. See docs/architecture.md "CI runners".
+    container: mcr.microsoft.com/playwright/java:v1.52.0-noble
+    env:
+      # Every qa.* key that has a checked-in default in config/default.properties is pinned here
+      # explicitly, rather than left to fall through to those defaults: Config checks environment
+      # variables before default.properties, so relying on the defaults alone means a value the
+      # shared, persistent self-hosted `medium` runner happened to inherit (from its host process
+      # environment, a leftover from another job, etc.) could silently change this job's behavior
+      # despite what its own comments/design promise — e.g. switching to a headed launch this
+      # display-less container can't support (QA_HEADLESS — confirmed against Playwright's own
+      # Docker docs: no Xvfb/noVNC by default; headed stays a local-only option, see README.md),
+      # selecting an unsupported browser (QA_BROWSER — Config.browser() would still fail closed
+      # for anything but Chromium, but there's no reason to depend on that), suppressing the very
+      # diagnostics this job exists to upload (QA_ARTIFACTPOLICY=never), or breaking the smoke
+      # run's timing (QA_TIMEOUTMS too short → false failures, too long/absurd → hangs). The
+      # three payment-safety flags are pinned to their safe-default `false` too, even though
+      # nothing in this suite currently calls PaymentSafetyGate, as the same explicit-over-implicit
+      # principle this project applies everywhere else (see docs/payment-safety.md). Keep all of
+      # these in sync with default.properties if those checked-in values ever change.
+      #
+      # QA_BASEURL is the one exception: it's built from the `environment` workflow_dispatch
+      # input above, not a pinned constant — see that input's description. The `environment`
+      # value is only ever inserted here as a job-level env value (a structured field GitHub
+      # Actions resolves before the job starts), never spliced into a `run:` step's script text,
+      # so this assignment itself carries no script-injection risk regardless of the input's
+      # content — it's the "Validate environment input" step below, not this line, that stops a
+      # malformed value from producing a URL pointing somewhere unintended.
+      QA_BASEURL: https://${{ inputs.environment }}--www.ams-qa.finboxgcp.investing.com/pro/
+      QA_HEADLESS: 'true'
+      QA_BROWSER: chromium
+      QA_TIMEOUTMS: '30000'
+      QA_ARTIFACTPOLICY: on-failure
+      QA_ALLOWUSERCREATION: 'false'
+      QA_ALLOWSANDBOXPURCHASE: 'false'
+      QA_ALLOWREALCARDPURCHASE: 'false'
+    steps:
+      # `medium` is a persistent self-hosted runner, not an ephemeral one — its workspace can
+      # carry over build/ output from a previous run on this same machine. Without this, a
+      # dispatch whose `environment` input fails validation below (which runs before checkout,
+      # so it never gets a fresh workspace) would still hit the always()-gated upload step and
+      # re-upload a prior run's stale build/artifacts as if they were this run's evidence
+      # (review finding). Runs first, before validation, so no later step can be skipped past it.
+      - name: Clean stale build output from a prior run
+        shell: bash
+        run: rm -rf build/artifacts build/test-results build/attempts build/allure-results build/cucumber-rerun
+
+      # Fails the whole job before checkout/build/browser-navigation if `environment` isn't a
+      # bare DNS label. Runs first and reads the input only via `env:` (never spliced into this
+      # script's text) so this check itself can't be broken out of via shell metacharacters in
+      # the input. This is what actually keeps QA_BASEURL above confined to
+      # *.ams-qa.finboxgcp.investing.com — without it, a value like "evil.example.com/x#" would
+      # make QA_BASEURL a URL whose real host is evil.example.com (the "#" turns the rest into a
+      # fragment the browser never sends), reopening the exfiltration path the free-text `baseUrl`
+      # input this replaced was flagged for.
+      - name: Validate environment input
+        # Explicit, not a default: a `container:` job's default shell resolution can land on
+        # `/bin/sh` even in an image that has bash, which silently breaks this step's Bash-only
+        # `[[ ... =~ ... ]]` conditional before checkout ever runs (review finding). Pin it.
+        shell: bash
+        env:
+          ENVIRONMENT_INPUT: ${{ inputs.environment }}
+        run: |
+          set -eu
+          if ! [[ "$ENVIRONMENT_INPUT" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$ ]]; then
+            echo "::error::Invalid 'environment' input '$ENVIRONMENT_INPUT': must be a bare DNS label (letters, digits, hyphens only; 1-63 chars; no leading/trailing hyphen). Enter the environment's URL prefix, not a full URL."
+            exit 1
+          fi
+
+      # persist-credentials: false (default is true) — actions/checkout otherwise leaves the
+      # job's GITHUB_TOKEN in the local git config for the rest of the job. This runner has
+      # internal network access, and nothing later in this job needs the token (no push, no API
+      # call via git), so there's no reason for it to be readable from disk by anything that runs
+      # after checkout — including whatever ref was dispatched (review finding).
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Reruns only the scenarios that failed (via SmokeTestRunner's `rerun:` plugin output),
+      # never the whole suite — a blanket suite rerun would silently redo any already-passed
+      # scenario, which is unsafe the moment this framework has a payment-submitting one (see
+      # docs/payment-safety.md "Ambiguous outcomes and retries"). The rerun file's URIs are
+      # passed back in directly, comma-joined, via -Dcucumber.features — NOT the `@file` syntax,
+      # which is a Cucumber-CLI-only convention silently ignored by the JUnit Platform engine
+      # (confirmed empirically: it selects zero scenarios and reports a false "success", which
+      # would have made a persistently-failing scenario look retried-and-fixed when it was never
+      # re-run at all). Every attempt's raw test-results/artifacts are snapshotted under
+      # build/attempts/attempt-N so a retried pass never erases evidence that an earlier attempt
+      # failed; build/allure-results additionally accumulates every attempt's results because it
+      # is never cleaned between attempts (no `clean` task runs here), so Allure can show the
+      # full retry history.
+      - name: Run QA smoke suite (retries only rerun previously-failed scenarios)
+        # Same container-default-shell hazard as the validation step above: this script's
+        # `snapshot_attempt()` function uses Bash-only `local`, which `/bin/sh` doesn't support
+        # (review finding). Pin it explicitly rather than rely on the image happening to default
+        # to bash.
+        shell: bash
+        # `retry` is a `choice` input, but that only constrains the workflow_dispatch web UI — a
+        # dispatch via the API/gh can send any string for it. The value used to be spliced
+        # straight into this script's text as `RETRIES="${{ inputs.retry }}"`, so a crafted
+        # payload could inject arbitrary shell before the retry loop ever runs (review finding).
+        # Routing it through `env:` makes GitHub Actions pass it as an environment variable value
+        # instead of substituting it into the script text, and the `case` guard below then
+        # rejects anything that isn't exactly 0/1/2 rather than trusting the input's shape.
+        env:
+          RETRY_INPUT: ${{ inputs.retry }}
+        run: |
+          # GitHub Actions' default bash shell runs with `-e` (and pipefail): disable that here,
+          # since this step's whole point is to keep going after `./gradlew` fails so it can
+          # decide whether to retry — with `-e` left on, the first failure would kill the step
+          # before STATUS is even captured.
+          set +e
+          set -u
+          case "$RETRY_INPUT" in
+            0|1|2) RETRIES="$RETRY_INPUT" ;;
+            *)
+              echo "::error::Invalid 'retry' input '$RETRY_INPUT': must be exactly 0, 1, or 2."
+              exit 1
+              ;;
+          esac
+          RERUN_FILE=build/cucumber-rerun/smoke.txt
+          ATTEMPT=1
+
+          snapshot_attempt() {
+            local dir="build/attempts/attempt-${ATTEMPT}"
+            mkdir -p "$dir"
+            cp -r build/test-results/qaSmokeTest "$dir/" 2>/dev/null || true
+            cp -r build/artifacts "$dir/" 2>/dev/null || true
+          }
+
+          ./gradlew qaSmokeTest
+          STATUS=$?
+          snapshot_attempt
+
+          while [ "$STATUS" -ne 0 ] && [ "$ATTEMPT" -le "$RETRIES" ] && [ -s "$RERUN_FILE" ]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            RETRY_URIS=$(tr '\n' ',' < "$RERUN_FILE" | sed 's/,$//')
+            echo "::warning::QA smoke attempt $((ATTEMPT - 1)) failed — retry $((ATTEMPT - 1))/$RETRIES rerunning: $RETRY_URIS"
+            ./gradlew qaSmokeTest "-Dcucumber.features=$RETRY_URIS"
+            STATUS=$?
+            snapshot_attempt
+          done
+
+          if [ "$STATUS" -eq 0 ] && [ "$ATTEMPT" -gt 1 ]; then
+            echo "::warning::QA smoke only passed after $ATTEMPT attempt(s) — treat as flaky, not clean; see build/attempts/ for each attempt's evidence"
+          fi
+
+          exit $STATUS
+
+      # Uploaded regardless of pass/fail. Includes every retry attempt's raw evidence
+      # (build/attempts) plus the final attempt's own reports and the accumulated Allure results
+      # — none of this is pushed to any shared/portal storage, it is only ever attached to this
+      # workflow run. No generated Allure HTML report: the plugin's report-generation task pulls
+      # in an Allure 3 CLI via Node that failed to run reliably (see docs/architecture.md
+      # "Reporting") — raw results are enough for now, and are what would be pushed to the
+      # shared Allure Portal server-side-rendering flow once that's wired up.
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          # actions/upload-artifact@v4 artifacts are immutable per run: re-running this job (via
+          # GitHub's own "re-run" UI, which reuses the same run id) would try to upload under the
+          # same name again and fail because it already exists. run_attempt disambiguates each
+          # attempt so a re-run doesn't clobber (or fail to add to) the previous attempt's evidence.
+          name: qa-smoke-artifacts-${{ github.run_attempt }}
+          path: |
+            build/artifacts/**
+            build/test-results/qaSmokeTest/**
+            build/attempts/**
+            build/allure-results/**
+          if-no-files-found: ignore
+
+      # A step's `if:` cannot see that same step's own `env:` (env application happens after the
+      # if-decision) and cannot reference `secrets` directly at all — so checking "is the webhook
+      # configured" needs its own tiny step, exposing only a boolean step output, rather than
+      # exporting the secret at job level just so a later step's `if:` can see it.
+      - name: Check whether Slack webhook is configured
+        id: check-slack
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL_QA: ${{ secrets.SLACK_WEBHOOK_URL_QA }}
+        run: echo "configured=$([ -n "$SLACK_WEBHOOK_URL_QA" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      # No-op today: SLACK_WEBHOOK_URL_QA has no secret configured for this project yet, so this
+      # step is skipped. Wiring an actual webhook is a separate, deliberate decision (needs the
+      # secret added in repo settings) — this only keeps the extension point ready. Failure-only,
+      # and deliberately minimal (status + run link, no screenshots/scenario detail) per
+      # docs/payment-safety.md's sensitive-artifact-handling rules. The secret is scoped to this
+      # step's own env (and the check step's above) — never job-level — so it isn't exported to
+      # checkout, Gradle, Playwright, or any code under test; only these two steps need it.
+      - name: Notify Slack on failure
+        if: failure() && steps.check-slack.outputs.configured == 'true'
+        env:
+          SLACK_WEBHOOK_URL_QA: ${{ secrets.SLACK_WEBHOOK_URL_QA }}
+        run: |
+          curl -sf -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"QA smoke failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$SLACK_WEBHOOK_URL_QA"
